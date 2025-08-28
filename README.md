@@ -142,8 +142,8 @@ marketguard/
 
 ```bash
 # 1) clone
-git clone https://github.com/<org>/marketguard.git
-cd sebi-shield
+git clone https://github.com/BlueWaves-afk/marketguard.ai.git
+cd marketguard.ai
 
 # 2) install root deps
 pnpm install  # or npm install
@@ -328,7 +328,7 @@ MIT (proposed). See [LICENSE](LICENSE).
 
 ## Disclaimer
 
-SEBI-Shield provides **educational and verification assistance**. It does **not** provide investment advice. Always consult official SEBI resources and registered intermediaries for final decisions.
+marketguard.ai provides **educational and verification assistance**. It does **not** provide investment advice. Always consult official SEBI resources and registered intermediaries for final decisions.
 
 ---
 
