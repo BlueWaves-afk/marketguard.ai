@@ -110,7 +110,7 @@ client (extension / mobile SDK)
 ## Repo Structure
 
 ```
-sebi-shield/
+marketguard/
 ├─ apps/
 │  ├─ extension/          # Chrome/Firefox extension (React/TS)
 │  └─ mobile-sdk/         # Android/iOS SDK overlay (Kotlin/Swift)
@@ -142,7 +142,7 @@ sebi-shield/
 
 ```bash
 # 1) clone
-git clone https://github.com/<org>/sebi-shield.git
+git clone https://github.com/<org>/marketguard.git
 cd sebi-shield
 
 # 2) install root deps
