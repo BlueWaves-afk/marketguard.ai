@@ -1,0 +1,22 @@
+# OS-specific files
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Node.js
+node_modules/
+dist/
+
+# Environment files
+.env
+
+# Logs
+*.log
+
+# Local dev/test data
+*.sqlite
+data/tmp/
+
