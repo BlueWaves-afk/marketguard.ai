@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "SEBI-Shield (Starter)",
+  "name": "marketguard.ai",
   "version": "0.1.0",
   "description": "Verify advisors, flag scam-language, and check UPI handles\u2014right on the page.",
   "permissions": [
@@ -25,6 +25,6 @@
     }
   ],
   "action": {
-    "default_title": "SEBI-Shield"
+    "default_title": "marketguard.ai"
   }
 }
