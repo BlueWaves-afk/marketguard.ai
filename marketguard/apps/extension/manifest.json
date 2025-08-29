@@ -3,32 +3,27 @@
   "name": "marketguard.ai",
   "version": "0.1.0",
   "description": "Verify advisors, flag scam-language, and check UPI handles—right on the page.",
-
-  "action": {
-    "default_title": "marketguard.ai"
-  },
-
-  "background": {
-    "service_worker": "background.js"
-  },
-
-  "permissions": [
-    "storage",
-    "activeTab",
-    "scripting",
-    "tabs"
-  ],
-
+  "action": { "default_title": "marketguard.ai" },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage", "activeTab", "scripting", "tabs"],
   "host_permissions": [
     "http://localhost:8001/*",
     "http://localhost:8002/*",
     "http://localhost:8003/*"
   ],
-
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "css": ["content.css"],
+      "js": [
+        "scripts/00-constants.js",
+        "scripts/01-storage.js",
+        "scripts/02-helpers.js",
+        "scripts/03-highlight.js",
+        "scripts/04-fab.js",
+        "scripts/05-overlay.js",
+        "scripts/06-main.js"
+      ],
       "run_at": "document_idle"
     }
   ]
