@@ -1,9 +1,11 @@
-// MarketGuard Content Script (modern card • draggable • close • fade + pulse on HIGH)
+// MarketGuard Content Script (show if score>=0.5; force-show via browser action; fade+pulse; draggable)
 
 (function () {
   const NLP_API   = "http://localhost:8002/api/nlp/v1/score";
   const CHECK_API = "http://localhost:8003/api/check/v1/upi-verify";
   const REG_API   = "http://localhost:8001/api/registry/v1/verify";
+
+  const RISK_THRESHOLD = 0.50; // <-- only auto-show overlay at/above 50%
 
   const RISK_TERMS = [
     "guaranteed returns", "assured returns", "multibagger",
@@ -15,107 +17,49 @@
 
   // ---------- Styles (fade in/out + pulse on HIGH)
   const STYLE = `
-    .marketguard-badge{
-      display:inline-block;padding:2px 6px;margin-left:6px;
-      font:12px/1.2 Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-      border-radius:6px;background:#ffe7c2;color:#7a4f00;border:1px solid #f0c36d;
-    }
+    .marketguard-badge{display:inline-block;padding:2px 6px;margin-left:6px;font:12px/1.2 Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;border-radius:6px;background:#ffe7c2;color:#7a4f00;border:1px solid #f0c36d}
     .marketguard-risk{background:#ffe5e5;color:#a80000;border-color:#ff8a8a}
     mark.marketguard{background:#fff6a5}
-
     .marketguard-tooltip{
-      position:fixed; bottom:24px; right:24px; z-index:2147483647;
-      width:min(560px, 38vw); min-width:360px;
-      display:flex; flex-direction:column; gap:14px;
-      border-radius:20px;
-      background: radial-gradient(120% 120% at 90% -10%, rgba(55,148,255,.18) 0%, rgba(255,255,255,.05) 45%, rgba(0,0,0,.35) 100%), rgba(14,20,34,.84);
-      backdrop-filter: saturate(140%) blur(8px);
-      box-shadow: 0 18px 44px rgba(0,0,0,.30), inset 0 0 0 1px rgba(255,255,255,.06);
-      color:#eaf2ff; padding:16px 18px;
-      font: 14px/1.45 Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-      user-select: none;
-
-      /* animation baseline */
-      opacity: 0;
-      transform: translateY(8px) scale(.98);
-      transition: opacity .18s ease, transform .2s ease, box-shadow .2s ease;
+      position:fixed;bottom:24px;right:24px;z-index:2147483647;width:min(560px,38vw);min-width:360px;display:flex;flex-direction:column;gap:14px;border-radius:20px;
+      background:radial-gradient(120% 120% at 90% -10%, rgba(55,148,255,.18) 0%, rgba(255,255,255,.05) 45%, rgba(0,0,0,.35) 100%), rgba(14,20,34,.84);
+      backdrop-filter:saturate(140%) blur(8px);box-shadow:0 18px 44px rgba(0,0,0,.30), inset 0 0 0 1px rgba(255,255,255,.06);color:#eaf2ff;padding:16px 18px;
+      font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;user-select:none;opacity:0;transform:translateY(8px) scale(.98);
+      transition:opacity .18s ease, transform .2s ease, box-shadow .2s ease;
     }
-    .marketguard-tooltip.marketguard-in {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-    .marketguard-tooltip.marketguard-out {
-      opacity: 0 !important;
-      transform: translateY(8px) scale(.98) !important;
-    }
-
-    /* Drop-shadow pulse for HIGH risk */
+    .marketguard-tooltip.marketguard-in{opacity:1;transform:translateY(0) scale(1)}
+    .marketguard-tooltip.marketguard-out{opacity:0 !important;transform:translateY(8px) scale(.98) !important}
     @keyframes mgPulse {
-      0% {
-        box-shadow: 0 18px 44px rgba(255, 64, 64, 0.22), inset 0 0 0 1px rgba(255,255,255,.06);
-      }
-      50% {
-        box-shadow: 0 22px 60px rgba(255, 64, 64, 0.42), 0 0 24px rgba(255, 64, 64, 0.35), inset 0 0 0 1px rgba(255,255,255,.06);
-      }
-      100% {
-        box-shadow: 0 18px 44px rgba(255, 64, 64, 0.22), inset 0 0 0 1px rgba(255,255,255,.06);
-      }
+      0% { box-shadow:0 18px 44px rgba(255,64,64,.22), inset 0 0 0 1px rgba(255,255,255,.06) }
+      50%{ box-shadow:0 22px 60px rgba(255,64,64,.42), 0 0 24px rgba(255,64,64,.35), inset 0 0 0 1px rgba(255,255,255,.06) }
+      100%{ box-shadow:0 18px 44px rgba(255,64,64,.22), inset 0 0 0 1px rgba(255,255,255,.06) }
     }
-    .marketguard-tooltip.marketguard-pulse {
-      animation: mgPulse 1.8s ease-in-out infinite;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .marketguard-tooltip { transition: none !important; animation: none !important; }
-    }
-
-    .ss-header{ display:flex; align-items:center; gap:12px; cursor:grab; }
-    .ss-header:active{ cursor:grabbing; }
-    .ss-avatar{
-      flex:0 0 44px; height:44px; width:44px; border-radius:12px; overflow:hidden;
-      display:grid; place-items:center;
-      background: linear-gradient(135deg, #2a3348, #111827);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
-    }
-    .ss-title{
-      font-weight:800; font-size:18px; letter-spacing:.2px; color:#c7d3ff; margin:0; flex:1 1 auto;
-    }
-    .ss-close{
-      flex:0 0 auto; width:28px; height:28px; border-radius:8px; display:grid; place-items:center;
-      background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
-      color:#eaf2ff; font-weight:700; cursor:pointer;
-      transition: background .12s ease, border-color .12s ease, transform .06s ease;
-    }
-    .ss-close:hover{ background: rgba(255,255,255,.12); border-color:rgba(255,255,255,.22); }
-    .ss-close:active{ transform: translateY(1px); }
-
-    .ss-body{ display:flex; flex-direction:column; gap:6px; }
-    .ss-risk{
-      font-size:17px; font-weight:800; margin:0;
-      background: linear-gradient(90deg, #12ffb0, #79ffa0 60%, #a7ff6f);
-      -webkit-background-clip:text; background-clip:text; color:transparent;
-    }
-    .ss-sub{ margin:0; opacity:.8; font-size:13px; line-height:1.45; }
-
-    .ss-divider{ height:1px; background:linear-gradient(90deg, transparent, rgba(255,255,255,.09), transparent); }
-    .ss-actions{ display:flex; justify-content:flex-end; align-items:center; gap:12px; }
-
-    .ss-btn{
-      appearance:none; border:1px solid rgba(255,255,255,.14);
-      background: rgba(255,255,255,.07); color:#eaf2ff;
-      padding:10px 14px; border-radius:12px; font-weight:700; cursor:pointer;
-      transition: transform .06s ease, background .12s ease, border-color .12s ease;
-      white-space:nowrap; font-size:14px;
-    }
-    .ss-btn:hover{ background: rgba(255,255,255,.12); border-color:rgba(255,255,255,.22); }
-    .ss-btn:active{ transform: translateY(1px); }
-    .ss-btn--danger{ color:#ff7979; background: rgba(255,107,107,.12); border-color:rgba(255,107,107,.38); }
+    .marketguard-tooltip.marketguard-pulse{animation:mgPulse 1.8s ease-in-out infinite}
+    @media (prefers-reduced-motion: reduce){.marketguard-tooltip{transition:none !important;animation:none !important}}
+    .ss-header{display:flex;align-items:center;gap:12px;cursor:grab}
+    .ss-header:active{cursor:grabbing}
+    .ss-avatar{flex:0 0 44px;height:44px;width:44px;border-radius:12px;overflow:hidden;display:grid;place-items:center;background:linear-gradient(135deg,#2a3348,#111827);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+    .ss-title{font-weight:800;font-size:18px;letter-spacing:.2px;color:#c7d3ff;margin:0;flex:1 1 auto}
+    .ss-close{flex:0 0 auto;width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#eaf2ff;font-weight:700;cursor:pointer;transition:background .12s ease,border-color .12s ease,transform .06s ease}
+    .ss-close:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22)}
+    .ss-close:active{transform:translateY(1px)}
+    .ss-body{display:flex;flex-direction:column;gap:6px}
+    .ss-risk{font-size:17px;font-weight:800;margin:0;background:linear-gradient(90deg,#12ffb0,#79ffa0 60%,#a7ff6f);-webkit-background-clip:text;background-clip:text;color:transparent}
+    .ss-sub{margin:0;opacity:.8;font-size:13px;line-height:1.45}
+    .ss-divider{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.09),transparent)}
+    .ss-actions{display:flex;justify-content:flex-end;align-items:center;gap:12px}
+    .ss-btn{appearance:none;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.07);color:#eaf2ff;padding:10px 14px;border-radius:12px;font-weight:700;cursor:pointer;transition:transform .06s ease, background .12s ease, border-color .12s ease;white-space:nowrap;font-size:14px}
+    .ss-btn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22)}
+    .ss-btn:active{transform:translateY(1px)}
+    .ss-btn--danger{color:#ff7979;background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.38)}
   `;
   document.documentElement.appendChild(Object.assign(document.createElement("style"), {textContent: STYLE}));
 
-  // ---------- Guards & helpers
+  // ---------- Guards & state
   let isScanning = false;
   let overlayClosed = false;
+  let forceShowOverlay = false;     // <-- toggled by browser action message
+  let lastRiskJson = null;          // cache last JSON to reuse when forcing
 
   function isOurElement(el) {
     return el?.classList && Array.from(el.classList).some(c => c.startsWith("marketguard") || c.startsWith("ss-"));
@@ -128,7 +72,7 @@
     } catch {}
   }
 
-  // ---------- Highlighting
+  // ---------- Highlighting (unchanged)
   function highlightMatches(node, regex, mode) {
     if (node?.nodeType !== Node.TEXT_NODE) return;
     if (isOurElement(node.parentElement)) return;
@@ -156,11 +100,7 @@
         btn.addEventListener("click", async () => {
           btn.textContent = "Verifying...";
           try {
-            const res = await fetch(CHECK_API, {
-              method: "POST",
-              headers: {"Content-Type": "application/json"},
-              body: JSON.stringify({ upi: matchedText })
-            });
+            const res = await fetch(CHECK_API, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ upi: matchedText }) });
             const json = await res.json();
             btn.textContent = json.display || (json.verified ? "Verified" : "Not Found");
             btn.classList.toggle("marketguard-risk", !json.verified);
@@ -189,7 +129,7 @@
     return out;
   }
 
-  // ---------- Positioning (persist per origin)
+  // ---------- Positioning
   const POS_KEY = "marketGuardV2Pos::" + location.origin;
   const savePos = (left, top) => { try { localStorage.setItem(POS_KEY, JSON.stringify({left, top})); } catch {} };
   const loadPos = () => { try { return JSON.parse(localStorage.getItem(POS_KEY)) || null; } catch { return null; } };
@@ -237,145 +177,169 @@
     handle.addEventListener("touchstart", onDown, {passive:true});
   }
 
-  // ---------- Card (create-or-update with fade + conditional pulse)
-  function upsertTooltip(json) {
-    if (overlayClosed) return;
-
+  // ---------- Overlay (create / update / remove based on score or force)
+  function mountOverlayShell() {
     let tip = document.querySelector(".marketguard-tooltip");
-    if (!tip) {
-      tip = document.createElement("div");
-      tip.className = "marketguard-tooltip";
+    if (tip) return tip;
 
-      // restore position if any
-      const pos = loadPos();
-      if (pos) {
-        tip.style.left = pos.left + "px";
-        tip.style.top  = pos.top  + "px";
-        tip.style.right = "auto";
-        tip.style.bottom = "auto";
-      }
+    tip = document.createElement("div");
+    tip.className = "marketguard-tooltip";
 
-      // Header
-      const header = document.createElement("div");
-      header.className = "ss-header";
+    // restore position if any
+    const pos = loadPos();
+    if (pos) {
+      tip.style.left = pos.left + "px";
+      tip.style.top  = pos.top  + "px";
+      tip.style.right = "auto";
+      tip.style.bottom = "auto";
+    }
 
-      const avatar = document.createElement("div");
-      avatar.className = "ss-avatar";
-      avatar.innerHTML = `
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="8" r="4" fill="#9fb4ff"/>
-          <path d="M4 20c0-3.3 3.6-6 8-6s8 2.7 8 6" fill="#7fa0ff" opacity=".65"/>
-        </svg>`;
-      header.appendChild(avatar);
+    // Header
+    const header = document.createElement("div");
+    header.className = "ss-header";
 
-      const title = document.createElement("h3");
-      title.className = "ss-title";
-      title.textContent = "MarketGuard Advisor Check";
-      header.appendChild(title);
+    const avatar = document.createElement("div");
+    avatar.className = "ss-avatar";
+    avatar.innerHTML = `
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="8" r="4" fill="#9fb4ff"/>
+        <path d="M4 20c0-3.3 3.6-6 8-6s8 2.7 8 6" fill="#7fa0ff" opacity=".65"/>
+      </svg>`;
+    header.appendChild(avatar);
 
-      const close = document.createElement("div");
-      close.className = "ss-close";
-      close.title = "Close";
-      close.textContent = "×";
-      close.onclick = () => {
-        tip.classList.add("marketguard-out");      // fade out
-        overlayClosed = true;
-        setTimeout(() => tip.remove(), 220);       // remove after transition
-      };
-      header.appendChild(close);
+    const title = document.createElement("h3");
+    title.className = "ss-title";
+    title.textContent = "MarketGuard Advisor Check";
+    header.appendChild(title);
 
-      tip.appendChild(header);
+    const close = document.createElement("div");
+    close.className = "ss-close";
+    close.title = "Close";
+    close.textContent = "×";
+    close.onclick = () => {
+      tip.classList.add("marketguard-out");  // fade out
+      overlayClosed = true;
+      setTimeout(() => tip.remove(), 220);
+    };
+    header.appendChild(close);
 
-      // Body
-      const body = document.createElement("div");
-      body.className = "ss-body";
-      body.innerHTML = `
-        <p class="ss-risk" data-ss-risk></p>
-        <p class="ss-sub">Suspicious language flagged on this page.</p>
-      `;
-      tip.appendChild(body);
+    tip.appendChild(header);
 
-      // Divider + Actions
-      const divider = document.createElement("div");
-      divider.className = "ss-divider";
-      tip.appendChild(divider);
+    // Body
+    const body = document.createElement("div");
+    body.className = "ss-body";
+    body.innerHTML = `
+      <p class="ss-risk" data-ss-risk></p>
+      <p class="ss-sub">Suspicious language flagged on this page.</p>
+    `;
+    tip.appendChild(body);
 
-      const actions = document.createElement("div");
-      actions.className = "ss-actions";
+    // Divider + Actions
+    const divider = document.createElement("div");
+    divider.className = "ss-divider";
+    tip.appendChild(divider);
 
-      const highlights = document.createElement("button");
-      highlights.className = "ss-btn ss-btn--danger";
-      highlights.textContent = "View Highlights";
-      highlights.onclick = () =>
-        alert("High-risk cues: " + (json.highlights || []).map(h => h.span).join(", "));
-      actions.appendChild(highlights);
+    const actions = document.createElement("div");
+    actions.className = "ss-actions";
 
-      const verify = document.createElement("button");
-      verify.className = "ss-btn";
-      verify.textContent = "Verify Advisor (use selected text)";
-      verify.onclick = async () => {
-        const q = (getSelection()?.toString() || "").trim();
-        if (!q) return alert("Select a name/handle first.");
-        try {
-          const res = await fetch(`${REG_API}?nameOrHandle=${encodeURIComponent(q)}`);
-          const data = await res.json();
-          if (data.matches?.length) {
-            const m = data.matches[0];
-            alert(`Top match: ${m.name} • ${m.type} • ${m.status}\n${m.link || ""}`);
-          } else {
-            alert("No registry match found");
-          }
-        } catch {
-          alert("Verify error");
+    const highlights = document.createElement("button");
+    highlights.className = "ss-btn ss-btn--danger";
+    highlights.textContent = "View Highlights";
+    highlights.onclick = () =>
+      alert("High-risk cues: " + ((lastRiskJson?.highlights || []).map(h => h.span).join(", ") || "None"));
+    actions.appendChild(highlights);
+
+    const verify = document.createElement("button");
+    verify.className = "ss-btn";
+    verify.textContent = "Verify Advisor (use selected text)";
+    verify.onclick = async () => {
+      const q = (getSelection()?.toString() || "").trim();
+      if (!q) return alert("Select a name/handle first.");
+      try {
+        const res = await fetch(`${REG_API}?nameOrHandle=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (data.matches?.length) {
+          const m = data.matches[0];
+          alert(`Top match: ${m.name} • ${m.type} • ${m.status}\n${m.link || ""}`);
+        } else {
+          alert("No registry match found");
         }
-      };
-      actions.appendChild(verify);
+      } catch {
+        alert("Verify error");
+      }
+    };
+    actions.appendChild(verify);
 
-      tip.appendChild(actions);
-      document.body.appendChild(tip);
+    tip.appendChild(actions);
+    document.body.appendChild(tip);
 
-      // make draggable
-      makeDraggable(tip, header);
+    // make draggable & fade in
+    makeDraggable(tip, header);
+    requestAnimationFrame(() => tip.classList.add("marketguard-in"));
 
-      // trigger fade-in on next frame
-      requestAnimationFrame(() => tip.classList.add("marketguard-in"));
-    }
+    return tip;
+  }
 
-    // Update risk text + pulse state in place
+  function updateOverlay(json) {
+    let tip = document.querySelector(".marketguard-tooltip");
+    if (!tip) tip = mountOverlayShell();
+
+    // Update risk text + pulse
     const riskEl = tip.querySelector("[data-ss-risk]");
-    if (riskEl) {
-      riskEl.textContent = `MarketGuard Risk: ${json.risk} (${Math.round((json.score || 0) * 100)}%)`;
-    }
+    if (riskEl) riskEl.textContent =
+      `MarketGuard Risk: ${json.risk} (${Math.round((json.score || 0) * 100)}%)`;
     const isHigh = String(json.risk || "").toUpperCase() === "HIGH";
     tip.classList.toggle("marketguard-pulse", isHigh);
   }
 
-  // ---------- Main scan (guarded & idempotent)
-  function runScan() {
+  function removeOverlayIfAny() {
+    const tip = document.querySelector(".marketguard-tooltip");
+    if (tip) {
+      tip.classList.add("marketguard-out");   // fade out
+      setTimeout(() => tip.remove(), 220);
+    }
+  }
+
+  // ---------- Main scan (with threshold logic)
+  async function runScan() {
     if (isScanning || overlayClosed) return;
     isScanning = true;
 
+    // text decorations
     const nodes = collectTextNodes(document.body);
     nodes.forEach(n => highlightMatches(n, UPI_REGEX, "upi"));
-
     const phraseRegex = new RegExp(
       "\\b(" + RISK_TERMS.map(t => t.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")).join("|") + ")\\b", "ig"
     );
     nodes.forEach(n => highlightMatches(n, phraseRegex, "risk"));
 
-    const sample = (document.body.innerText || "").slice(0, 4000);
-    fetch(NLP_API, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ lang: "en", text: sample, metadata: { source: "webpage", url: location.href } }),
-    })
-      .then(r => r.json())
-      .then(json => upsertTooltip(json))
-      .catch(() => { /* ignore */ })
-      .finally(() => { isScanning = false; });
+    // NLP risk
+    try {
+      const sample = (document.body.innerText || "").slice(0, 4000);
+      const res = await fetch(NLP_API, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ lang: "en", text: sample, metadata: { source: "webpage", url: location.href } }),
+      });
+      const json = await res.json();
+      lastRiskJson = json;
+
+      const score = Number(json.score || 0);
+      const allowAutoShow = score >= RISK_THRESHOLD;
+
+      if ((allowAutoShow || forceShowOverlay) && !overlayClosed) {
+        updateOverlay(json);
+      } else {
+        removeOverlayIfAny();
+      }
+    } catch {
+      // network fail → do nothing
+    } finally {
+      isScanning = false;
+    }
   }
 
-  // ---------- Kick off + observe (simple debounce)
+  // ---------- Kick off + observe
   runScan();
   const observer = new MutationObserver(() => {
     if (isScanning || overlayClosed) return;
@@ -383,4 +347,20 @@
     observer._t = setTimeout(runScan, 300);
   });
   observer.observe(document.body, { childList:true, subtree:true });
+
+  // ---------- Listen for browser-action "force show"
+  try {
+    chrome.runtime?.onMessage.addListener((msg) => {
+      if (msg && msg.type === "MARKETGUARD_FORCE_SHOW") {
+        forceShowOverlay = true;
+        overlayClosed = false;     // in case user had closed it
+        // if we already have a JSON, just show; else run a fresh scan
+        if (lastRiskJson) {
+          updateOverlay(lastRiskJson);
+        } else {
+          runScan();
+        }
+      }
+    });
+  } catch {}
 })();
