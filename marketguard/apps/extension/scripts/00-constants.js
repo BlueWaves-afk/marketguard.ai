@@ -1,43 +1,53 @@
-// Global constants & defaults
+// scripts/00-constants.js
 (() => {
   const MG = (window.MG = window.MG || {});
 
+  // ---- API endpoints
   MG.API = {
-    NLP:   "http://localhost:8002/api/nlp/v1/score",
-    CHECK: "http://localhost:8003/api/check/v1/upi-verify",
-    REG:   "http://localhost:8001/api/registry/v1/verify"
+    NLP: "http://localhost:8002/api/nlp/v1/score",
+    CHECK_UPI: "http://localhost:8003/api/check/v1/upi-verify",
+    REGISTRY: "http://localhost:8001/api/registry/v1/verify",
   };
 
+  // ---- Storage keys
+  MG.KEYS = {
+    PREFS: "marketGuardPrefs",
+    POS_FAB: "marketGuardFabPos",
+    POS_OVERLAY: "marketGuardOverlayPos",
+    ONBOARD: "marketGuardOnboard",
+    HIST: "marketGuardSiteHistory",
+  };
+
+  // ---- Defaults (PAUSE ADDED HERE)
   MG.DEFAULT_PREFS = {
-    threshold: 0.50,
-    defaultMode: "compact",           // "compact" | "expanded"
-    theme: "glass-dark"               // "glass-dark" | "glass-light"
+    threshold: 0.5,       // auto-show overlay at/above this NLP score
+    theme: "dark",        // "dark" | "light"
+    defaultMode: "compact",
+    pauseScanning: false, // <— NEW
   };
 
-  MG.CUTS = { LOW: 0.33, HIGH: 0.66 };
+  // ---- Buckets / cuts
+  MG.CUTS = { LOW: 0.2, HIGH: 0.5 };
 
+  // ---- Risk terms + helpers
   MG.RISK_TERMS = [
     "guaranteed returns", "assured returns", "multibagger",
     "insider access", "FPI access", "DM me",
-    "limited window", "send UPI", "double your money"
+    "limited window", "send UPI", "double your money",
   ];
+
+  MG.getPhraseRegex = () => {
+    if (MG._phraseRegex) return MG._phraseRegex;
+    MG._phraseRegex = new RegExp(
+      "\\b(" + MG.RISK_TERMS.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b",
+      "ig"
+    );
+    return MG._phraseRegex;
+  };
+
+  // ---- UPI
   MG.UPI_REGEX = /\b[A-Za-z0-9_.-]{2,}@[A-Za-z]{2,}\b/g;
 
-  MG.KEYS = {
-    POS_OVERLAY: "marketGuardV2Pos::" + location.origin,
-    POS_FAB:     "marketGuardFabPos::" + location.origin,
-    HISTORY:     "mgHistory::" + location.origin,
-    ONBOARD:     "mgOnboarded::v1",
-    PREFS:       "mgPrefs::v1"
-  };
-
-  // app state (shared)
-  MG.state = {
-    prefs: { ...MG.DEFAULT_PREFS },
-    isScanning: false,
-    overlayClosed: false,
-    forceShowOverlay: false,
-    lastRiskJson: null,
-    highlightIndex: -1
-  };
+  // ---- Small helpers used everywhere
+  MG.pct = (x) => Math.round((Number(x) || 0) * 100);
 })();

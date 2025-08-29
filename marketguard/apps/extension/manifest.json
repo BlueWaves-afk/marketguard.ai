@@ -11,20 +11,27 @@
     "http://localhost:8002/*",
     "http://localhost:8003/*"
   ],
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "css": ["content.css"],
-      "js": [
-        "scripts/00-constants.js",
-        "scripts/01-storage.js",
-        "scripts/02-helpers.js",
-        "scripts/03-highlight.js",
-        "scripts/04-fab.js",
-        "scripts/05-overlay.js",
-        "scripts/06-main.js"
-      ],
-      "run_at": "document_idle"
-    }
-  ]
+  "web_accessible_resources": [
+  {
+    "resources": ["assets/*"],
+    "matches": ["<all_urls>"]
+  }
+],
+"content_scripts": [
+  {
+    "matches": ["<all_urls>"],
+    "js": [
+      "scripts/00-constants.js",
+      "scripts/01-storage.js",
+      "scripts/02-helpers.js",
+      "scripts/03-highlight.js",
+      "scripts/04-fab.js",
+      "scripts/05-overlay.js",
+      "scripts/06-main.js"
+    ],
+    "css": ["content.css"],   
+    "run_at": "document_idle"
+  }
+]
+
 }

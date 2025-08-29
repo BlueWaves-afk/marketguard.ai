@@ -1,241 +1,443 @@
-// Overlay UI (draggable), settings, advisor card, highlight nav, sparkline
+// scripts/05-overlay.js (hardened + wired buttons + pause-safe + smooth settings slide + modern controls)
 (() => {
-  const MG = window.MG;
-  const { POS_OVERLAY, PREFS, HISTORY } = MG.KEYS;
+  const MG = (window.MG = window.MG || {});
 
-  function applyTheme(tip, theme) {
-    tip.classList.toggle("mg-theme-light", theme === "glass-light");
+  // ---------- small safe fallbacks ----------
+  MG.qs = MG.qs || ((sel, root = document) => root.querySelector(sel));
+  MG.pct = MG.pct || ((x) => Math.round((Number(x) || 0) * 100));
+  MG.makeDraggable = MG.makeDraggable || (() => {});
+  MG.saveSync = MG.saveSync || (async () => {});
+  MG.loadSync = MG.loadSync || (async (_k, defv) => defv);
+  MG.KEYS = MG.KEYS || { PREFS: "marketGuardPrefs", POS_OVERLAY: "marketGuardOverlayPos" };
+
+  const FALLBACK_PREFS = { threshold: 0.5, theme: "dark", defaultMode: "compact", pauseScanning: false };
+
+  function coercePrefs(p) {
+    const base = (MG.DEFAULT_PREFS && typeof MG.DEFAULT_PREFS === "object") ? MG.DEFAULT_PREFS : FALLBACK_PREFS;
+    if (!p || typeof p !== "object") return { ...base };
+    const out = { ...base, ...p };
+    if (!out.defaultMode) out.defaultMode = base.defaultMode || "compact";
+    if (typeof out.threshold !== "number") out.threshold = Number(base.threshold) || 0.5;
+    if (typeof out.pauseScanning !== "boolean") out.pauseScanning = !!base.pauseScanning;
+    if (!out.theme) out.theme = base.theme || "dark";
+    return out;
+  }
+  function getPrefs() {
+    if (!MG.state) MG.state = {};
+    MG.state.prefs = coercePrefs(MG.state.prefs);
+    return MG.state.prefs;
   }
 
-  function applyPrefsToOverlay(tip) {
-    const { prefs } = MG.state;
-    applyTheme(tip, prefs.theme);
-    const t = MG.qs("[data-mg-thr]", tip); if (t) t.textContent = `${MG.pct(prefs.threshold)}%`;
-    const m = MG.qs("[data-mg-mode]", tip); if (m) m.textContent = prefs.defaultMode;
-    const th= MG.qs("[data-mg-theme]", tip); if (th) th.textContent = prefs.theme;
+  // ---------- highlight navigation helpers ----------
+  MG.findHighlights = function () {
+    return Array.from(document.querySelectorAll('mark.marketguard[data-mg-flag="1"]'));
+  };
+  MG.updateHlSummary = function () {
+    const tip = MG.qs(".marketguard-tooltip");
+    if (!tip) return;
+    const items = MG.findHighlights();
+    const idx = (MG.state?.hlIndex ?? -1) + 1;
+    const span = MG.qs('[data-mg-hl-summary]', tip);
+    if (span) span.textContent = items.length ? `Match ${Math.max(idx, 1)} of ${items.length}` : "No highlights";
+  };
+  MG.goToHighlight = function (delta = 0) {
+    if (!MG.state) MG.state = {};
+    const items = MG.findHighlights();
+    if (!items.length) { MG.state.hlIndex = -1; MG.updateHlSummary(); return null; }
+    MG.state.hlIndex = (MG.state.hlIndex ?? -1) + delta;
+    if (MG.state.hlIndex < 0) MG.state.hlIndex = items.length - 1;
+    if (MG.state.hlIndex >= items.length) MG.state.hlIndex = 0;
+    const el = items[MG.state.hlIndex];
+    items.forEach(i => i.classList.remove("mg-hl-focus"));
+    el.classList.add("mg-hl-focus");
+    try { el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" }); } catch {}
+    MG.updateHlSummary();
+    return el;
+  };
 
-    const r = MG.qs("#mg-threshold", tip), rv = MG.qs("#mg-threshold-val", tip);
-    if (r && rv) { r.value = String(prefs.threshold); rv.textContent = `${MG.pct(prefs.threshold)}%`; r.oninput = () => rv.textContent = `${MG.pct(r.value)}%`; }
-    const mo = MG.qs("#mg-mode", tip);  if (mo) mo.value  = prefs.defaultMode;
-    const thm= MG.qs("#mg-theme", tip); if (thm) thm.value = prefs.theme;
-  }
+  // ---------- apply prefs to overlay ----------
+  MG.applyPrefsToOverlay = (tip) => {
+    if (!tip) return;
+    const prefs = MG.getPrefs?.() || getPrefs();
 
-  MG.buildOverlayShell = function buildOverlayShell() {
+    tip.classList.toggle("mg-theme-light", prefs.theme === "light");
+
+    const chip = MG.qs("[data-chip-threshold]", tip);
+    if (chip) chip.textContent = `Auto threshold: ${MG.pct(prefs.threshold)}%`;
+
+    const modeChip = MG.qs("[data-chip-mode]", tip);
+    if (modeChip) modeChip.textContent = `Mode: ${prefs.defaultMode}`;
+  };
+
+  // ---------- mount overlay shell ----------
+  MG.mountOverlayShell = () => {
     let tip = MG.qs(".marketguard-tooltip");
     if (tip) return tip;
 
     tip = document.createElement("div");
     tip.className = "marketguard-tooltip";
-    document.body.appendChild(tip);
 
-    // header
-    const header = document.createElement("div"); header.className = "ss-header";
-    const avatar = document.createElement("div"); avatar.className = "ss-avatar";
-    avatar.innerHTML = `<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" fill="#9fb4ff"/><path d="M4 20c0-3.3 3.6-6 8-6s8 2.7 8 6" fill="#7fa0ff" opacity=".65"/></svg>`;
+    // restore saved position (best-effort)
+    try {
+      chrome?.storage?.local?.get?.(MG.KEYS.POS_OVERLAY, (res) => {
+        const pos = res?.[MG.KEYS.POS_OVERLAY];
+        if (pos && typeof pos.left === "number" && typeof pos.top === "number") {
+          tip.style.left = pos.left + "px";
+          tip.style.top  = pos.top  + "px";
+          tip.style.right = "auto";
+          tip.style.bottom = "auto";
+        }
+      });
+    } catch {}
+
+    // Header
+    const header = document.createElement("div");
+    header.className = "ss-header";
+
+    // helper to resolve your logo (reuse same logic as FAB)
+    function getLogoUrl() {
+      if (typeof MG.LOGO_URL === "string" && MG.LOGO_URL.length) return MG.LOGO_URL;
+      try { return chrome?.runtime?.getURL?.("assets/logo.png") || ""; } catch { return ""; }
+    }
+
+    const avatar = document.createElement("div");
+    avatar.className = "ss-avatar ss-avatar--logo"; // circle look via CSS
+    const logoUrl = getLogoUrl();
+    avatar.innerHTML = logoUrl
+      ? `<img class="ss-avatar-img" src="${logoUrl}" alt="${MG.BRAND_NAME || "MarketGuard"} logo" decoding="async" loading="eager" />`
+      : `<div class="ss-avatar-fallback" aria-hidden="true"></div>`;
     header.appendChild(avatar);
 
-    const title = document.createElement("h3"); title.className="ss-title"; title.textContent="MarketGuard Advisor Check"; header.appendChild(title);
-    const langChip = document.createElement("span"); langChip.className="ss-chip"; langChip.setAttribute("data-mg-lang",""); langChip.style.marginLeft="auto"; header.appendChild(langChip);
+    const title = document.createElement("h3");
+    title.className = "ss-title";
+    title.textContent = "MarketGuard Advisor Check";
+    header.appendChild(title);
 
-    const gear = document.createElement("div"); gear.className="ss-gear"; gear.title="Settings"; gear.textContent="⚙"; header.appendChild(gear);
-    const close= document.createElement("div"); close.className="ss-close"; close.title="Close"; close.textContent="×";
-    close.onclick = () => { tip.classList.add("marketguard-out"); MG.state.overlayClosed=true; MG.state.forceShowOverlay=false; setTimeout(()=>tip.remove(),220); };
+    const gear = document.createElement("div");
+    gear.className = "ss-gear";
+    gear.title = "Settings";
+    gear.textContent = "⚙";
+    gear.setAttribute("aria-expanded", "false");
+    header.appendChild(gear);
+
+    const close = document.createElement("div");
+    close.className = "ss-close";
+    close.title = "Close";
+    close.textContent = "×";
+    close.onclick = () => {
+      tip.classList.add("marketguard-out");
+      if (!MG.state) MG.state = {};
+      MG.state.overlayClosed = true;
+      setTimeout(() => tip.remove(), 220);
+    };
     header.appendChild(close);
 
     tip.appendChild(header);
 
-    // body
+    // Body
     const body = document.createElement("div");
     body.className = "ss-body";
     body.innerHTML = `
       <p class="ss-risk" data-ss-risk></p>
       <p class="ss-sub">Suspicious language flagged on this page.</p>
-      <div class="ss-row" style="gap:6px;">
-        <span class="ss-chip">Auto threshold: <b data-mg-thr></b></span>
-        <span class="ss-chip">Mode: <b data-mg-mode></b></span>
-        <span class="ss-chip">Theme: <b data-mg-theme></b></span>
+
+      <div class="ss-row">
+        <span class="ss-chip" data-chip-threshold>Auto threshold: 50%</span>
+        <span class="ss-chip" data-chip-mode>Mode: compact</span>
       </div>
-      <div class="ss-row" style="gap:10px; align-items:center;">
-        <div class="mg-card" style="flex:1;">
-          <div style="font-weight:700; margin-bottom:4px;">Site Risk Trend (last 20)</div>
-          <div id="mg-sparkline" style="height:42px;"></div>
+
+      <div class="mg-card">
+        <div style="font-weight:700; margin-bottom:6px;">Site Risk Trend (last 20)</div>
+        <canvas id="mg-sparkline" height="24"></canvas>
+      </div>
+
+      <div class="ss-actions">
+        <div class="ss-left-actions">
+          <button class="ss-nav-btn" data-mg-prev>◀ Prev</button>
+          <button class="ss-nav-btn" data-mg-next>Next ▶</button>
+          <span data-mg-hl-summary>No highlights</span>
+        </div>
+        <div class="ss-right-actions">
+          <button class="ss-btn ss-btn--danger" data-mg-report>Report to SEBI (SCORES)</button>
+          <button class="ss-btn" data-mg-verify>Verify Advisor (select text)</button>
         </div>
       </div>
-      <div id="mg-advisor" class="mg-card" style="display:none;"></div>
-      <div class="mg-settings" id="mg-settings">
-        <div class="row">
-          <label>Auto-show threshold</label>
-          <input id="mg-threshold" type="range" min="0" max="1" step="0.05">
-          <span id="mg-threshold-val" style="width:40px; text-align:right;"></span>
-        </div>
-        <div class="row">
-          <label>Default mode</label>
-          <select id="mg-mode"><option value="compact">Compact</option><option value="expanded">Expanded</option></select>
-        </div>
-        <div class="row">
-          <label>Theme</label>
-          <select id="mg-theme"><option value="glass-dark">Glass (Dark)</option><option value="glass-light">Glass (Light)</option></select>
-        </div>
-        <button class="ss-btn mg-save">Save Settings</button>
-      </div>
+
+      <div class="mg-settings" hidden></div>
     `;
     tip.appendChild(body);
 
-    // actions
-    const actions = document.createElement("div"); actions.className="ss-actions";
-    const left = document.createElement("div"); left.className="ss-left-actions";
-    const prev = document.createElement("button"); prev.className="ss-nav-btn"; prev.textContent="◀ Prev";
-    const next = document.createElement("button"); next.className="ss-nav-btn"; next.textContent="Next ▶";
-    const count = document.createElement("span"); count.style.opacity=".8"; count.style.fontSize="12px";
-    left.appendChild(prev); left.appendChild(next); left.appendChild(count);
+    document.body.appendChild(tip);
 
-    const right = document.createElement("div");
-    const report = document.createElement("button"); report.className="ss-btn ss-btn--danger"; report.textContent="Report to SEBI (SCORES)"; report.onclick=()=>window.open("https://scores.sebi.gov.in/","_blank");
-    const verifyBtn = document.createElement("button"); verifyBtn.className="ss-btn"; verifyBtn.textContent="Verify Advisor (select text)"; verifyBtn.onclick=()=>MG.handleAdvisorVerify();
-    right.appendChild(report); right.appendChild(verifyBtn);
+    // Draggable (save overlay position)
+    try { MG.makeDraggable(tip, header, MG.KEYS.POS_OVERLAY); } catch {}
 
-    actions.appendChild(left); actions.appendChild(right);
-    tip.appendChild(Object.assign(document.createElement("div"), { className:"ss-divider" }));
-    tip.appendChild(actions);
+    // Toggle settings (smooth slide)
+    const settingsEl = MG.qs(".mg-settings", tip);
+    gear.onclick = () => {
+      if (!settingsEl.firstChild) {
+        try { MG.buildSettingsPanel?.(settingsEl); } catch {}
+      }
 
-    // settings handlers
-    applyPrefsToOverlay(tip);
-    MG.qs(".ss-gear", tip).onclick = () => {
-      const pane = MG.qs("#mg-settings", tip);
-      pane.style.display = pane.style.display === "none" ? "block" : "none";
-    };
-    MG.qs("#mg-settings .mg-save", tip).onclick = async () => {
-      const thr  = parseFloat(MG.qs("#mg-threshold", tip).value);
-      const mode = MG.qs("#mg-mode", tip).value;
-      const theme= MG.qs("#mg-theme", tip).value;
-      MG.state.prefs = { threshold: thr, defaultMode: mode, theme };
-      await MG.saveSync(PREFS, MG.state.prefs);
-      applyPrefsToOverlay(tip);
-      if (MG.state.lastRiskJson) MG.updateAutoShow(MG.state.lastRiskJson);
+      const prefersReduced = !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+      const isOpening = settingsEl.hidden;
+
+      if (prefersReduced) {
+        settingsEl.hidden = !isOpening ? true : false;
+        gear.setAttribute("aria-expanded", String(isOpening));
+        return;
+      }
+
+      if (isOpening) MG.slideOpen?.(settingsEl, 260);
+      else MG.slideClose?.(settingsEl, 220);
+
+      gear.setAttribute("aria-expanded", String(isOpening));
     };
 
-    // nav handlers
-    prev.onclick = () => MG.navigateHighlight(-1, count);
-    next.onclick = () => MG.navigateHighlight(+1, count);
+    // Build settings panel (includes Pause scanning)
+    MG.buildSettingsPanel?.(settingsEl);
 
-    // restore position
-    MG.loadLocal(POS_OVERLAY, null).then(pos => {
-      if (pos && typeof pos.left==="number" && typeof pos.top==="number") {
-        tip.style.left = pos.left+"px"; tip.style.top = pos.top+"px";
-        tip.style.right="auto"; tip.style.bottom="auto";
+    // Wire action buttons
+    const btnPrev   = MG.qs('[data-mg-prev]', tip);
+    const btnNext   = MG.qs('[data-mg-next]', tip);
+    const btnReport = MG.qs('[data-mg-report]', tip);
+    const btnVerify = MG.qs('[data-mg-verify]', tip);
+
+    btnPrev?.addEventListener('click', () => MG.goToHighlight(-1));
+    btnNext?.addEventListener('click', () => MG.goToHighlight(+1));
+
+    btnReport?.addEventListener('click', () => {
+      const url = 'https://scores.sebi.gov.in/';
+      try { window.open(url, '_blank', 'noopener,noreferrer'); } catch { location.href = url; }
+    });
+
+    btnVerify?.addEventListener('click', async () => {
+      const text = String(window.getSelection?.()?.toString() || '').trim();
+      if (!text) { alert('Select advisor name or SEBI regn no. on the page, then click Verify.'); return; }
+      try {
+        const endpoint = MG?.API?.VERIFY;
+        if (!endpoint) { alert('Verify API not configured'); return; }
+        btnVerify.disabled = true; btnVerify.textContent = 'Verifying...';
+        const r = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: text, url: location.href })
+        });
+        const j = await r.json();
+        btnVerify.textContent = j?.status || j?.result || 'Done';
+      } catch {
+        btnVerify.textContent = 'Error';
+      } finally {
+        setTimeout(() => { btnVerify.textContent = 'Verify Advisor (select text)'; btnVerify.disabled = false; }, 1200);
       }
     });
-    MG.makeDraggable(tip, header, POS_OVERLAY);
 
+    // Fade in + initial state
     requestAnimationFrame(() => tip.classList.add("marketguard-in"));
+    MG.applyPrefsToOverlay?.(tip);
+    MG.updateHlSummary?.();
+
     return tip;
   };
 
-  MG.updateOverlay = function updateOverlay(json) {
-    const tip = MG.buildOverlayShell();
-    applyPrefsToOverlay(tip);
+  // ---- Smooth slide helpers (open/close) ----
+  MG.slideOpen = function slideOpen(el, dur = 240) {
+    if (!el) return;
+    el.hidden = false;                 // must be visible to measure
+    el.setAttribute("data-animating", "1");
+    el.style.height = "0px";
+    el.style.opacity = "0";
+    el.style.transform = "translateY(8px)";
+    el.style.transition = "none";
 
-    const riskEl = MG.qs("[data-ss-risk]", tip);
-    if (riskEl) riskEl.textContent = `MarketGuard Risk: ${(json.risk||'').toUpperCase()} (${MG.pct(json.score)}%)`;
+    const h = el.scrollHeight;         // measure full height
 
-    const isHigh = String(json.risk||"").toUpperCase() === "HIGH";
-    tip.classList.toggle("marketguard-pulse", isHigh);
+    requestAnimationFrame(() => {
+      el.style.transition = `height ${dur}ms cubic-bezier(.2,.7,.2,1),
+                             opacity ${dur}ms ease,
+                             transform ${dur}ms ease`;
+      el.style.height = h + "px";
+      el.style.opacity = "1";
+      el.style.transform = "translateY(0)";
+    });
 
-    const langChip = MG.qs("[data-mg-lang]", tip);
-    const lang = (json.lang || json.language || json?.meta?.lang || "EN").toUpperCase();
-    const lconf = json.lang_confidence ?? json.langScore ?? null;
-    langChip.textContent = `Lang: ${lang}${lconf!=null ? ` (${MG.pct(lconf)}%)` : ""}`;
-
-    MG.drawSparklineInto(MG.qs("#mg-sparkline", tip));
-    const label = tip.querySelector(".ss-left-actions span:last-child");
-    MG.updateHighlightCount(label);
+    const done = (e) => {
+      if (e && e.target !== el) return;
+      el.style.height = "";            // let it size naturally afterward
+      el.style.opacity = "";
+      el.style.transform = "";
+      el.style.transition = "";
+      el.removeAttribute("data-animating");
+      el.removeEventListener("transitionend", done);
+    };
+    el.addEventListener("transitionend", done);
   };
 
-  MG.removeOverlayIfAny = function removeOverlayIfAny() {
-    const tip = MG.qs(".marketguard-tooltip");
-    if (tip) { tip.classList.add("marketguard-out"); setTimeout(() => tip.remove(), 220); }
+  MG.slideClose = function slideClose(el, dur = 200) {
+    if (!el) return;
+    el.setAttribute("data-animating", "1");
+    const h = el.scrollHeight;
+    el.style.height = h + "px";        // start from current height
+    el.style.opacity = "1";
+    el.style.transform = "translateY(0)";
+    el.style.transition = `height ${dur}ms cubic-bezier(.2,.7,.2,1),
+                           opacity ${dur}ms ease,
+                           transform ${dur}ms ease`;
+
+    requestAnimationFrame(() => {
+      el.style.height = "0px";
+      el.style.opacity = "0";
+      el.style.transform = "translateY(8px)";
+    });
+
+    const done = (e) => {
+      if (e && e.target !== el) return;
+      el.hidden = true;                // remove from layout after animation
+      el.style.height = "";
+      el.style.opacity = "";
+      el.style.transform = "";
+      el.style.transition = "";
+      el.removeAttribute("data-animating");
+      el.removeEventListener("transitionend", done);
+    };
+    el.addEventListener("transitionend", done);
   };
 
-  // advisor card
-  MG.handleAdvisorVerify = async function handleAdvisorVerify() {
-    const q = (getSelection()?.toString() || "").trim();
-    if (!q) return alert("Select a name/handle first.");
-    try {
-      const r = await fetch(`${MG.API.REG}?nameOrHandle=${encodeURIComponent(q)}`);
-      const data = await r.json();
-      const box = MG.qs("#mg-advisor"); if (!box) return;
-      if (data?.matches?.length) {
-        const m = data.matches[0] || {};
-        const { name, type, status, link, reg_no, validity, valid_till, photo } = m;
-        box.style.display = "block";
-        box.innerHTML = `
-          <div style="display:flex; gap:10px; align-items:center;">
-            <div style="width:44px; height:44px; border-radius:10px; overflow:hidden; background:#223;">
-              ${photo ? `<img src="${photo}" style="width:100%;height:100%;object-fit:cover;">`
-                      : `<div style="display:grid;place-items:center;width:100%;height:100%;color:#9fb4ff;font-weight:800;">${(name||'?').slice(0,1).toUpperCase()}</div>`}
-            </div>
-            <div style="flex:1;">
-              <div style="font-weight:800">${name || "Unknown"}</div>
-              <div style="opacity:.85; font-size:12px;">${type || ""} • <b>${status || ""}</b></div>
-              <div style="opacity:.85; font-size:12px;">${reg_no ? `SEBI ID: ${reg_no} • `: ""}${valid_till ? `Valid till: ${valid_till}` : (validity || "")}</div>
-            </div>
-            ${link ? `<a href="${link}" target="_blank" class="ss-btn" style="text-decoration:none;">Open Registry</a>` : ""}
-          </div>`;
-      } else {
-        box.style.display="block";
-        box.innerHTML = `<div style="font-weight:700">No registry match found for “${q}”.</div>`;
-      }
-    } catch { alert("Verify error"); }
-  };
-
-  // highlight nav
-  MG.getFlagMarks = () =>
-    MG.qsa('mark.marketguard[data-mg-flag="1"]').filter(el => document.contains(el));
-
-  MG.updateHighlightCount = (labelEl) => {
-    const list = MG.getFlagMarks(); const count = list.length;
-    if (!count) { if (labelEl) labelEl.textContent = "No highlights"; MG.state.highlightIndex = -1; return; }
-    if (MG.state.highlightIndex < 0) MG.state.highlightIndex = 0;
-    if (labelEl) labelEl.textContent = `${MG.state.highlightIndex+1}/${count}`;
-  };
-
-  MG.navigateHighlight = (dir, labelEl) => {
-    const list = MG.getFlagMarks(); const count = list.length;
-    if (!count) { if (labelEl) labelEl.textContent = "No highlights"; return; }
-    if (list[MG.state.highlightIndex]) list[MG.state.highlightIndex].classList.remove("mg-active");
-    MG.state.highlightIndex = (MG.state.highlightIndex + dir + count) % count;
-    const target = list[MG.state.highlightIndex];
-    target.classList.add("mg-active");
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
-    MG.updateHighlightCount(labelEl);
-  };
-
-  // history sparkline
-  MG.pushHistory = async (score) => {
-    if (isNaN(score)) return;
-    const hist = await MG.loadLocal(HISTORY, []);
-    hist.push({ t: MG.nowTs(), s: Number(score) });
-    while (hist.length > 20) hist.shift();
-    await MG.saveLocal(HISTORY, hist);
-  };
-
-  MG.drawSparklineInto = async (container) => {
+  // ---------- settings panel (MODERN CONTROLS) ----------
+  MG.buildSettingsPanel = (container) => {
     if (!container) return;
-    const hist = await MG.loadLocal(HISTORY, []);
-    const W = Math.max(container.clientWidth || 280, 180), H = 40, P = 3;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
-    svg.setAttribute("width", W); svg.setAttribute("height", H);
-    svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.style.display="block";
-    if (hist.length <= 1) {
-      svg.innerHTML = `<text x="8" y="${H-10}" fill="currentColor" opacity=".7" font-size="11">No history yet</text>`;
-      container.innerHTML = ""; container.appendChild(svg); return;
-    }
-    const step = (W - P*2) / (hist.length - 1);
-    const pts = hist.map((h,i)=>`${(P+i*step).toFixed(1)},${(H-P-(H-P*2)*MG.clamp(h.s,0,1)).toFixed(1)}`);
-    svg.innerHTML = `<polyline points="${pts.join(" ")}" fill="none" stroke="currentColor" stroke-width="1.8" opacity=".9"/>`;
-    container.innerHTML = ""; container.appendChild(svg);
+    const prefs = MG.getPrefs?.() || getPrefs();
+
+    container.innerHTML = "";
+
+    // ----- Pause scanning (modern switch) -----
+    const rowPause = document.createElement("div");
+    rowPause.className = "row";
+    rowPause.innerHTML = `
+      <label class="mg-field">
+        <span class="mg-field-label">Pause scanning</span>
+        <span class="mg-switch">
+          <input type="checkbox" role="switch" aria-label="Pause scanning" data-mg-pause />
+          <span class="mg-switch-track"><span class="mg-switch-thumb"></span></span>
+        </span>
+      </label>
+    `;
+    container.appendChild(rowPause);
+
+    const elPause = MG.qs('[data-mg-pause]', rowPause);
+    elPause.checked = !!prefs.pauseScanning;
+    elPause.onchange = async () => {
+      prefs.pauseScanning = elPause.checked;
+      try { await MG.saveSync(MG.KEYS.PREFS, prefs); } catch {}
+
+      if (prefs.pauseScanning) {
+        // Hide overlay, keep FAB visible + show "PAUSED"
+        MG.removeOverlayIfAny?.();
+        await MG.ensureFab?.();
+        MG.setFabScore?.(NaN, "PAUSED");
+      } else {
+        // Unpaused: run a fresh scan
+        MG.runScan?.();
+      }
+    };
+
+    // ----- Auto threshold (modern range + live bubble) -----
+    const rowTh = document.createElement("div");
+    rowTh.className = "row";
+    rowTh.innerHTML = `
+      <div class="mg-field">
+        <span class="mg-field-label">Auto threshold</span>
+        <div class="mg-range-wrap">
+          <input class="mg-range" type="range" min="0" max="100" step="5" data-mg-th />
+          <output class="mg-range-bubble" data-mg-th-val></output>
+        </div>
+      </div>
+    `;
+    container.appendChild(rowTh);
+
+    const th = MG.qs("[data-mg-th]", rowTh);
+    const thVal = MG.qs("[data-mg-th-val]", rowTh);
+
+    const setRangeUI = () => {
+      // bubble text
+      thVal.value = `${th.value}%`;
+      thVal.textContent = `${th.value}%`;
+      // fill track via CSS var
+      th.style.setProperty("--val", th.value);
+    };
+
+    th.value = MG.pct(prefs.threshold);
+    setRangeUI();
+    th.oninput = setRangeUI;
+    th.onchange = async () => {
+      prefs.threshold = Number(th.value) / 100;
+      try { await MG.saveSync(MG.KEYS.PREFS, prefs); } catch {}
+      const tip = MG.qs(".marketguard-tooltip");
+      if (tip) MG.applyPrefsToOverlay(tip);
+      if (MG.state?.lastRiskJson) MG.updateAutoShow?.(MG.state.lastRiskJson);
+    };
+
+    // ----- Theme (modern select) -----
+    const rowTheme = document.createElement("div");
+    rowTheme.className = "row";
+    rowTheme.innerHTML = `
+      <div class="mg-field">
+        <span class="mg-field-label">Theme</span>
+        <div class="mg-select">
+          <select data-mg-theme aria-label="Theme">
+            <option value="dark">glass-dark</option>
+            <option value="light">glass-light</option>
+          </select>
+          <span class="mg-select-caret" aria-hidden="true"></span>
+        </div>
+      </div>
+    `;
+    container.appendChild(rowTheme);
+
+    const themeSel = MG.qs("[data-mg-theme]", rowTheme);
+    themeSel.value = prefs.theme;
+    themeSel.onchange = async () => {
+      prefs.theme = themeSel.value;
+      try { await MG.saveSync(MG.KEYS.PREFS, prefs); } catch {}
+      MG.applyPrefsToOverlay(MG.qs(".marketguard-tooltip"));
+    };
   };
 
-  MG.applyTheme = applyTheme;
-  MG.applyPrefsToOverlay = applyPrefsToOverlay;
+  // ---------- update overlay from NLP (shows --% when paused) ----------
+  MG.updateOverlay = (json) => {
+    // Ensure shell exists
+    let tip = MG.qs(".marketguard-tooltip");
+    if (!tip) tip = MG.mountOverlayShell();
+
+    // Check paused state
+    const prefs = MG.getPrefs?.() || (function () { if (!MG.state) MG.state = {}; return MG.state.prefs || {}; })();
+    const paused = !!prefs.pauseScanning;
+
+    // Safe values
+    const risk = String(json?.risk || "—").toUpperCase();
+    const pctText = paused ? "--" : String(MG.pct?.(json?.score || 0));
+
+    // Main line
+    const riskEl = MG.qs("[data-ss-risk]", tip);
+    if (riskEl) {
+      riskEl.textContent = `MarketGuard Risk: ${risk} (${pctText}%)`;
+    }
+
+    // Only pulse when not paused
+    tip.classList.toggle("marketguard-pulse", risk === "HIGH" && !paused);
+
+    // Sparkline still draws (history is informational)
+    MG.drawSparklineInto?.(MG.qs("#mg-sparkline", tip));
+
+    // Update highlight summary if present
+    MG.updateHlSummary?.();
+  };
+
+  MG.removeOverlayIfAny = () => {
+    const tip = MG.qs(".marketguard-tooltip");
+    if (tip) {
+      tip.classList.add("marketguard-out");
+      setTimeout(() => tip.remove(), 220);
+    }
+  };
 })();
