@@ -1,4 +1,4 @@
-// scripts/05-overlay.js (hardened + wired buttons + pause-safe + smooth settings slide + modern controls)
+// scripts/05-overlay.js (buttery-smooth, symmetric open/close; measure-once; isolated layout)
 (() => {
   const MG = (window.MG = window.MG || {});
 
@@ -94,14 +94,13 @@
     const header = document.createElement("div");
     header.className = "ss-header";
 
-    // helper to resolve your logo (reuse same logic as FAB)
     function getLogoUrl() {
       if (typeof MG.LOGO_URL === "string" && MG.LOGO_URL.length) return MG.LOGO_URL;
       try { return chrome?.runtime?.getURL?.("assets/logo.png") || ""; } catch { return ""; }
     }
 
     const avatar = document.createElement("div");
-    avatar.className = "ss-avatar ss-avatar--logo"; // circle look via CSS
+    avatar.className = "ss-avatar ss-avatar--logo";
     const logoUrl = getLogoUrl();
     avatar.innerHTML = logoUrl
       ? `<img class="ss-avatar-img" src="${logoUrl}" alt="${MG.BRAND_NAME || "MarketGuard"} logo" decoding="async" loading="eager" />`
@@ -163,7 +162,8 @@
         </div>
       </div>
 
-      <div class="mg-settings" hidden></div>
+      <!-- NOTE: add a dedicated inner to animate opacity/translate while outer animates height -->
+      <div class="mg-settings" hidden><div class="mg-settings__inner"></div></div>
     `;
     tip.appendChild(body);
 
@@ -172,11 +172,13 @@
     // Draggable (save overlay position)
     try { MG.makeDraggable(tip, header, MG.KEYS.POS_OVERLAY); } catch {}
 
-    // Toggle settings (smooth slide)
+    // Toggle settings (symmetric smooth slide)
     const settingsEl = MG.qs(".mg-settings", tip);
+    const settingsInner = MG.qs(".mg-settings__inner", settingsEl);
+
     gear.onclick = () => {
-      if (!settingsEl.firstChild) {
-        try { MG.buildSettingsPanel?.(settingsEl); } catch {}
+      if (!settingsInner.firstChild) {
+        try { MG.buildSettingsPanel?.(settingsInner); } catch {}
       }
 
       const prefersReduced = !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
@@ -188,14 +190,14 @@
         return;
       }
 
-      if (isOpening) MG.slideOpen?.(settingsEl, 260);
-      else MG.slideClose?.(settingsEl, 220);
+      if (isOpening) MG.slideOpen?.(settingsEl, 320);
+      else MG.slideClose?.(settingsEl, 280);
 
       gear.setAttribute("aria-expanded", String(isOpening));
     };
 
-    // Build settings panel (includes Pause scanning)
-    MG.buildSettingsPanel?.(settingsEl);
+    // Build settings panel (includes Pause scanning) into inner
+    MG.buildSettingsPanel?.(settingsInner);
 
     // Wire action buttons
     const btnPrev   = MG.qs('[data-mg-prev]', tip);
@@ -240,67 +242,108 @@
     return tip;
   };
 
-  // ---- Smooth slide helpers (open/close) ----
-  MG.slideOpen = function slideOpen(el, dur = 240) {
+  // ---- utilities for animation timing ----
+  async function settleLayout() {
+    try { await document.fonts?.ready; } catch {}
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  }
+  function getInner(el) { return MG.qs(".mg-settings__inner", el) || el; }
+
+  // ---- Symmetric, silky slide (outer height + inner fade/translate) ----
+  MG.slideOpen = async function slideOpen(el, dur = 320) {
     if (!el) return;
-    el.hidden = false;                 // must be visible to measure
-    el.setAttribute("data-animating", "1");
+    try { el._mgHeightAnim?.cancel(); el._mgInnerAnim?.cancel(); } catch {}
+
+    const inner = getInner(el);
+    el.hidden = false;
+
+    // isolate layout & promote layer during anim
+    el.style.contain = "layout paint size";
+    el.style.overflow = "clip";
+    el.style.willChange = "height";
+    inner.style.willChange = "opacity, transform";
+    inner.style.opacity = "0";
+    inner.style.transform = "translateY(8px)";
+
+    // measure once
+    el.style.height = "auto";
+    await settleLayout();
+    const targetH = el.scrollHeight;
+
+    // set start frame
     el.style.height = "0px";
-    el.style.opacity = "0";
-    el.style.transform = "translateY(8px)";
-    el.style.transition = "none";
 
-    const h = el.scrollHeight;         // measure full height
+    const easing = "cubic-bezier(.25,.9,.25,1)";
+    const heightAnim = el.animate(
+      [{ height: "0px" }, { height: targetH + "px" }],
+      { duration: dur, easing, fill: "both", composite: "replace" }
+    );
+    const innerAnim = inner.animate(
+      [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "translateY(0)" }],
+      { duration: dur * 0.9, easing, fill: "both", composite: "replace" }
+    );
+    el._mgHeightAnim = heightAnim;
+    el._mgInnerAnim = innerAnim;
 
-    requestAnimationFrame(() => {
-      el.style.transition = `height ${dur}ms cubic-bezier(.2,.7,.2,1),
-                             opacity ${dur}ms ease,
-                             transform ${dur}ms ease`;
-      el.style.height = h + "px";
-      el.style.opacity = "1";
-      el.style.transform = "translateY(0)";
-    });
+    await Promise.allSettled([heightAnim.finished, innerAnim.finished]);
 
-    const done = (e) => {
-      if (e && e.target !== el) return;
-      el.style.height = "";            // let it size naturally afterward
-      el.style.opacity = "";
-      el.style.transform = "";
-      el.style.transition = "";
-      el.removeAttribute("data-animating");
-      el.removeEventListener("transitionend", done);
-    };
-    el.addEventListener("transitionend", done);
+    // cleanup -> natural sizing
+    el.style.height = "";
+    el.style.contain = "";
+    el.style.overflow = "";
+    el.style.willChange = "";
+    inner.style.willChange = "";
+    inner.style.opacity = "";
+    inner.style.transform = "";
+    el._mgHeightAnim = el._mgInnerAnim = null;
   };
 
-  MG.slideClose = function slideClose(el, dur = 200) {
+  MG.slideClose = async function slideClose(el, dur = 280) {
     if (!el) return;
-    el.setAttribute("data-animating", "1");
-    const h = el.scrollHeight;
-    el.style.height = h + "px";        // start from current height
-    el.style.opacity = "1";
-    el.style.transform = "translateY(0)";
-    el.style.transition = `height ${dur}ms cubic-bezier(.2,.7,.2,1),
-                           opacity ${dur}ms ease,
-                           transform ${dur}ms ease`;
+    try { el._mgHeightAnim?.cancel(); el._mgInnerAnim?.cancel(); } catch {}
 
-    requestAnimationFrame(() => {
-      el.style.height = "0px";
-      el.style.opacity = "0";
-      el.style.transform = "translateY(8px)";
-    });
+    const inner = getInner(el);
 
-    const done = (e) => {
-      if (e && e.target !== el) return;
-      el.hidden = true;                // remove from layout after animation
-      el.style.height = "";
-      el.style.opacity = "";
-      el.style.transform = "";
-      el.style.transition = "";
-      el.removeAttribute("data-animating");
-      el.removeEventListener("transitionend", done);
-    };
-    el.addEventListener("transitionend", done);
+    // isolate layout & promote layer during anim
+    el.style.contain = "layout paint size";
+    el.style.overflow = "clip";
+    el.style.willChange = "height";
+    inner.style.willChange = "opacity, transform";
+
+    // measure once
+    el.style.height = "auto";
+    await settleLayout();
+    const startH = el.scrollHeight;
+
+    // start frame
+    el.style.height = startH + "px";
+    inner.style.opacity = "1";
+    inner.style.transform = "translateY(0)";
+
+    const easing = "cubic-bezier(.25,.9,.25,1)";
+    const heightAnim = el.animate(
+      [{ height: startH + "px" }, { height: "0px" }],
+      { duration: dur, easing, fill: "both", composite: "replace" }
+    );
+    const innerAnim = inner.animate(
+      [{ opacity: 1, transform: "translateY(0)" }, { opacity: 0, transform: "translateY(8px)" }],
+      { duration: dur * 0.9, easing, fill: "both", composite: "replace" }
+    );
+    el._mgHeightAnim = heightAnim;
+    el._mgInnerAnim = innerAnim;
+
+    await Promise.allSettled([heightAnim.finished, innerAnim.finished]);
+
+    // finalize
+    el.hidden = true;
+    el.style.height = "";
+    el.style.contain = "";
+    el.style.overflow = "";
+    el.style.willChange = "";
+    inner.style.willChange = "";
+    inner.style.opacity = "";
+    inner.style.transform = "";
+    el._mgHeightAnim = el._mgInnerAnim = null;
   };
 
   // ---------- settings panel (MODERN CONTROLS) ----------
@@ -331,12 +374,10 @@
       try { await MG.saveSync(MG.KEYS.PREFS, prefs); } catch {}
 
       if (prefs.pauseScanning) {
-        // Hide overlay, keep FAB visible + show "PAUSED"
         MG.removeOverlayIfAny?.();
         await MG.ensureFab?.();
         MG.setFabScore?.(NaN, "PAUSED");
       } else {
-        // Unpaused: run a fresh scan
         MG.runScan?.();
       }
     };
@@ -359,10 +400,8 @@
     const thVal = MG.qs("[data-mg-th-val]", rowTh);
 
     const setRangeUI = () => {
-      // bubble text
       thVal.value = `${th.value}%`;
       thVal.textContent = `${th.value}%`;
-      // fill track via CSS var
       th.style.setProperty("--val", th.value);
     };
 
@@ -405,31 +444,22 @@
 
   // ---------- update overlay from NLP (shows --% when paused) ----------
   MG.updateOverlay = (json) => {
-    // Ensure shell exists
     let tip = MG.qs(".marketguard-tooltip");
     if (!tip) tip = MG.mountOverlayShell();
 
-    // Check paused state
     const prefs = MG.getPrefs?.() || (function () { if (!MG.state) MG.state = {}; return MG.state.prefs || {}; })();
     const paused = !!prefs.pauseScanning;
 
-    // Safe values
     const risk = String(json?.risk || "—").toUpperCase();
     const pctText = paused ? "--" : String(MG.pct?.(json?.score || 0));
 
-    // Main line
     const riskEl = MG.qs("[data-ss-risk]", tip);
     if (riskEl) {
       riskEl.textContent = `MarketGuard Risk: ${risk} (${pctText}%)`;
     }
 
-    // Only pulse when not paused
     tip.classList.toggle("marketguard-pulse", risk === "HIGH" && !paused);
-
-    // Sparkline still draws (history is informational)
     MG.drawSparklineInto?.(MG.qs("#mg-sparkline", tip));
-
-    // Update highlight summary if present
     MG.updateHlSummary?.();
   };
 

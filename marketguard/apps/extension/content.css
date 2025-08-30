@@ -448,3 +448,5 @@ mark.marketguard.mg-hl-focus {
   box-shadow: 0 0 0 2px rgba(255,107,107,.55), 0 0 16px rgba(255,64,64,.28) inset;
   border-color: rgba(255,107,107,.55) !important;
 }
+.mg-settings { contain: layout paint style; backface-visibility: hidden; }
+.mg-settings__inner { will-change: opacity, transform; }
