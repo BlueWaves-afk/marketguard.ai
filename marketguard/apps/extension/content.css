@@ -80,31 +80,29 @@ mark.marketguard.mg-hl-focus {
   gap: 8px;
 }
 
-/* Circular tiny logo inside FAB */
+/* --- LOGO: perfect circle, never squishes, clean scaling --- */
 .marketguard-fab .mg-logo {
+  flex: 0 0 28px;          /* lock box so it never compresses */
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  overflow: hidden;
+  overflow: hidden;         /* hard clip to circle */
   display: grid;
   place-items: center;
   background: rgba(255,255,255,.08);
   border: 1px solid rgba(255,255,255,.12);
 }
-
 .marketguard-fab .mg-logo img {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  border-radius: 50%;       /* ensures edges stay circular */
+  object-fit: contain;      /* keep full logo visible without distortion */
   object-position: center;
-  display: block;
+  image-rendering: auto;    /* best anti-aliasing */
 }
-
-.marketguard-fab .mg-logo[data-empty="1"] svg {
-  width: 20px; height: 20px;
-  fill: currentColor;
-  opacity: .9;
-}
+/* If any old fallback SVG remains in DOM, keep it hidden */
+.marketguard-fab .mg-logo .mg-logo-fallback { display: none !important; }
 
 .marketguard-fab .mg-text { display: flex; flex-direction: column; line-height: 1.1; }
 .marketguard-fab .mg-perc { font-weight: 800; font-size: 13px; transition: font-size 0.1s ease; }
@@ -143,19 +141,13 @@ mark.marketguard.mg-hl-focus {
 .ss-header{ display:flex; align-items:center; gap:12px; cursor:grab; }
 .ss-header:active{ cursor:grabbing; }
 
-/* CIRCULAR avatar container
-   Bias the visible area UP a bit with --mg-logo-y (50% = centered; lower value = shift up)
-   and add a pixel nudge via --mg-logo-nudge (negative = move up). */
+/* CIRCULAR avatar container */
 .ss-avatar{
   flex:0 0 44px; width:44px; height:44px;
   border-radius:50%; overflow:hidden; display:grid; place-items:center;
   background: linear-gradient(135deg, #2a3348, #111827);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
-  --mg-logo-y: 38%;
-  --mg-logo-nudge: -3px;
 }
-
-/* Circle style for your logo variant */
 .ss-avatar--logo {
   background: rgba(255,255,255,.06);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
@@ -448,4 +440,11 @@ mark.marketguard.mg-hl-focus {
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
   border-top: 6px solid currentColor;
+}
+
+/* Red-ish ring if we’re using the normal logo as fallback */
+.marketguard-fab .mg-logo.mg-logo--alert,
+.ss-avatar.mg-alert{
+  box-shadow: 0 0 0 2px rgba(255,107,107,.55), 0 0 16px rgba(255,64,64,.28) inset;
+  border-color: rgba(255,107,107,.55) !important;
 }
