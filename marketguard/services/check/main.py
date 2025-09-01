@@ -1,11 +1,14 @@
-from fastapi import FastAPI, UploadFile, Form
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import easyocr
-import os
-from datetime import datetime
+from PIL import Image
+import io
 
-app = FastAPI(title="Fraud Detector API")
+# -------------------------------------------------------
+# App Initialization
+# -------------------------------------------------------
+app = FastAPI(title="OCR Paragraph API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,38 +18,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Init OCR
-reader = easyocr.Reader(['en'])
-os.makedirs("transcripts", exist_ok=True)
-
-class TextReq(BaseModel):
-    text: str
-
-@app.post("/api/ocr")
-async def ocr_image(file: UploadFile):
-    """Extract text from uploaded image"""
-    contents = await file.read()
-    img_path = "temp.png"
-    with open(img_path, "wb") as f:
-        f.write(contents)
-
-    results = reader.readtext(img_path, detail=0)
-
-    # Save transcript
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = f"transcripts/ocr_{timestamp}.txt"
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write("\n".join(results))
-
-    return {"text": results}
+# -------------------------------------------------------
+# OCR Engine
+# -------------------------------------------------------
+reader = easyocr.Reader(['en'])  # English only
 
 
-@app.post("/api/process-text")
-async def process_text(req: TextReq):
-    """Save raw text (from DOM) and return acknowledgment"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = f"transcripts/dom_{timestamp}.txt"
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(req.text)
+# -------------------------------------------------------
+# Models
+# -------------------------------------------------------
+class OCRResponse(BaseModel):
+    paragraphs: list[str]
 
-    return {"message": "Text received", "length": len(req.text)}
+
+# -------------------------------------------------------
+# Utils
+# -------------------------------------------------------
+def group_lines_into_paragraphs(lines, y_threshold=15):
+    """Group OCR lines into paragraphs based on vertical spacing."""
+    lines_sorted = sorted(lines, key=lambda l: l[0][0][1])  # sort by y
+    paragraphs, current_para, last_y = [], [], None
+
+    for (bbox, text, prob) in lines_sorted:
+        y = bbox[0][1]
+        if last_y is not None and abs(y - last_y) > y_threshold:
+            paragraphs.append(" ".join(current_para))
+            current_para = []
+        current_para.append(text)
+        last_y = y
+
+    if current_para:
+        paragraphs.append(" ".join(current_para))
+
+    return paragraphs
+
+
+# -------------------------------------------------------
+# Routes
+# -------------------------------------------------------
+@app.post("/api/ocr", response_model=OCRResponse)
+async def ocr_endpoint(file: UploadFile = File(...)):
+    """
+    Upload an image and get OCR text grouped into paragraphs.
+    """
+    image_bytes = await file.read()
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+
+    results = reader.readtext(image)
+
+    paragraphs = group_lines_into_paragraphs(results)
+
+    return {"paragraphs": paragraphs}
