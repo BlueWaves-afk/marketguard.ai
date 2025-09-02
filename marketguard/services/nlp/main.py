@@ -12,6 +12,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+#bens version
 
 RULES_PATH = os.environ.get("RISK_RULES", "/scripts/regex_rules.json")
 with open(RULES_PATH, "r", encoding="utf-8") as f:
