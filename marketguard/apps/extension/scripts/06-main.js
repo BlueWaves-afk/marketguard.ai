@@ -1,10 +1,11 @@
 // scripts/06-main.js
-// Orchestrates scan, thresholded auto-show, observers, messaging, live settings
+// Full-page structured scan on load and every 15s.
+// Sends per-element texts to NLP; stores high-risk element locations for later highlighting.
 (() => {
   const MG = (window.MG = window.MG || {});
   const { PREFS } = (MG.KEYS = MG.KEYS || { PREFS: "marketGuardPrefs" });
 
-  // Always-available defaults even if 00-constants.js didn’t load
+  // ---------------- Defaults & Prefs ----------------
   const FALLBACK_DEFAULTS = {
     threshold: 0.5,
     theme: "dark",
@@ -15,8 +16,6 @@
   function getDefaults() {
     return { ...(MG.DEFAULT_PREFS || FALLBACK_DEFAULTS) };
   }
-
-  // Ensure prefs object always exists
   function ensurePrefs() {
     if (!MG.state) MG.state = {};
     if (!MG.state.prefs || typeof MG.state.prefs !== "object") {
@@ -24,15 +23,24 @@
     }
     return MG.state.prefs;
   }
+  function getPrefs() { return ensurePrefs(); }
 
-  function getPrefs() {
-    return ensurePrefs();
-  }
+  // ---------------- Limits (sane perf caps) ----------------
+  const HEARTBEAT_MS = 15000;
+  const PER_EL_CHAR_LIMIT = 800;     // max chars per element text
+  const TOTAL_CHAR_BUDGET = 12000;   // total chars across all items
+  const MAX_ITEMS = 500;             // absolute cap on items per scan
 
-  // ---------- Auto-show logic (bullet-proof)
+  // ---------------- State ----------------
+  MG.state = MG.state || {};
+  MG.state.isScanning = false;
+  MG.state.lastRiskJson = MG.state.lastRiskJson || null;
+  MG.state.highRiskElements = [];  // [{id, score, risk, locator:{cssPath,rect}, textSample}]
+
+  // ---------------- Auto-show logic ----------------
   MG.updateAutoShow = function updateAutoShow(json) {
     try {
-      const prefs = getPrefs(); // never undefined
+      const prefs = getPrefs();
       const overlayClosed = !!MG.state.overlayClosed;
       const forceShowOverlay = !!MG.state.forceShowOverlay;
 
@@ -40,113 +48,248 @@
       const threshold = Number(prefs?.threshold ?? FALLBACK_DEFAULTS.threshold);
       const defaultMode = String(prefs?.defaultMode ?? FALLBACK_DEFAULTS.defaultMode);
 
-      const allow =
-        score >= threshold ||
-        forceShowOverlay ||
-        (defaultMode === "expanded" && !overlayClosed);
+      const allow = score >= threshold || forceShowOverlay || (defaultMode === "expanded" && !overlayClosed);
 
       if (allow && !overlayClosed) MG.updateOverlay?.(json || { risk: "—", score: 0 });
       else MG.removeOverlayIfAny?.();
-    } catch {
-      // Never crash on timing issues
-      MG.removeOverlayIfAny?.();
-    }
+    } catch { MG.removeOverlayIfAny?.(); }
   };
 
-  // ---------- Main scan
+  // ---------------- Helpers ----------------
+  function isVisible(el) {
+    try {
+      if (!(el instanceof Element)) return true;
+      if (el.hidden) return false;
+      const st = getComputedStyle(el);
+      if (st.display === "none" || st.visibility === "hidden" || st.opacity === "0") return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    } catch { return true; }
+  }
+
+  function textFromEditable(el) {
+    if (!el) return "";
+    if (el.tagName === "TEXTAREA") return String(el.value || "");
+    if (el.tagName === "INPUT") return String(el.value || "");
+    if (el.hasAttribute && el.hasAttribute("contenteditable")) {
+      return String(el.innerText || el.textContent || "");
+    }
+    return "";
+  }
+
+  function getLocator(el) {
+    try {
+      const parts = [];
+      let n = el;
+      while (n && n.nodeType === 1 && parts.length < 6) {
+        let seg = n.nodeName.toLowerCase();
+        if (n.id) seg += "#" + n.id;
+        else {
+          const cls = (n.className && typeof n.className === "string")
+            ? n.className.trim().split(/\s+/).slice(0,2).join(".")
+            : "";
+          if (cls) seg += "." + cls;
+        }
+        parts.unshift(seg);
+        n = n.parentElement;
+      }
+      const cssPath = parts.join(" > ");
+      const r = el.getBoundingClientRect();
+      return { cssPath, rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } };
+    } catch {
+      return { cssPath: "", rect: { x:0, y:0, w:0, h:0 } };
+    }
+  }
+
+  // Collect a reasonable set of text-bearing elements (including editables).
+  function collectElementsForScan() {
+    // Common text carriers + editables
+    const selector = [
+      "p","div","span","li","a","td","th",
+      "h1","h2","h3","h4","h5","h6","label","blockquote","figcaption",
+      "button","summary","dd","dt",
+      "input","textarea","[contenteditable]"
+    ].join(",");
+
+    const nodes = Array.from(document.querySelectorAll(selector));
+    const items = [];
+    let totalChars = 0;
+    let idCounter = 0;
+
+    for (const el of nodes) {
+      if (!isVisible(el)) continue;
+
+      let text = "";
+      let type = el.tagName.toLowerCase();
+
+      // Editable values
+      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.hasAttribute("contenteditable")) {
+        text = textFromEditable(el);
+        const hint = (el.getAttribute("placeholder") || el.getAttribute("aria-label") || "").trim();
+        if (hint) text = (text ? (text + "\n") : "") + hint;
+      } else {
+        // Non-editable visible text
+        text = String(el.innerText || el.textContent || "");
+      }
+
+      text = text.trim();
+      if (!text) continue;
+
+      // Truncate per-element and respect global budget
+      let chunk = text.slice(0, PER_EL_CHAR_LIMIT);
+      if (totalChars + chunk.length > TOTAL_CHAR_BUDGET) {
+        const remaining = Math.max(0, TOTAL_CHAR_BUDGET - totalChars);
+        if (remaining <= 0) break;
+        chunk = chunk.slice(0, remaining);
+      }
+
+      items.push({
+        id: idCounter++,
+        el,
+        text: chunk,
+        meta: {
+          type,
+          locator: getLocator(el),
+          url: location.href
+        }
+      });
+
+      totalChars += chunk.length;
+      if (items.length >= MAX_ITEMS || totalChars >= TOTAL_CHAR_BUDGET) break;
+    }
+
+    // Always include a page-level aggregate at the end (helps with overall context)
+    const pageText = (document.body?.innerText || "").trim().slice(0, Math.max(2000, PER_EL_CHAR_LIMIT));
+    if (pageText) {
+      items.push({
+        id: idCounter++,
+        el: document.body,
+        text: pageText,
+        meta: { type: "page", locator: { cssPath: "body", rect: { x:0,y:0,w:window.innerWidth,h:window.innerHeight } }, url: location.href }
+      });
+    }
+
+    return items;
+  }
+
+  // ---------------- Main scan (every 15s + on-load) ----------------
   MG.runScan = async function runScan() {
     const prefs = getPrefs();
 
-    // Always ensure the FAB exists so users can unpause later
     await MG.ensureFab?.();
 
-    // If paused, reflect in FAB and (if forced) open overlay shell
     if (prefs.pauseScanning) {
-    MG.setFabScore?.(NaN, "PAUSED");
-
-    if (MG.state?.forceShowOverlay) {
+      MG.setFabScore?.(NaN, "PAUSED");
+      if (MG.state?.forceShowOverlay) {
         const j = MG.state.lastRiskJson || { risk: "—", score: 0, lang: "EN" };
         MG.updateOverlay?.(j);
-    }
-    return;
+      }
+      return;
     }
 
-    // Selection / concurrent guards
-    if (MG.isSelectionLocked?.() || MG.hasActiveSelection?.()) return;
     if (MG.state.isScanning) return;
     MG.state.isScanning = true;
 
-    // Decorate text
-    const nodes = MG.collectTextNodes?.(document.body) || [];
-    nodes.forEach((n) => MG.highlightMatches?.(n, MG.UPI_REGEX, "upi"));
-    const phrase = MG.getPhraseRegex?.();
-    nodes.forEach((n) => MG.highlightMatches?.(n, phrase, "risk"));
-
-    // NLP call
     try {
-      const sample = (document.body?.innerText || "").slice(0, 4000);
-      const endpoint = MG?.API?.NLP;
-      if (endpoint && typeof endpoint === "string") {
-        const r = await fetch(endpoint, {
+      // Build structured items (per element text + locator)
+      const items = collectElementsForScan();
+
+      const endpointBatch = MG?.API?.NLP_BATCH;
+      const endpointSingle = MG?.API?.NLP;
+
+      let results = null;
+
+      if (endpointBatch && typeof endpointBatch === "string") {
+        // Preferred: batch endpoint returns { results: [{id, score, risk, ...}, ...] }
+        const r = await fetch(endpointBatch, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lang: "en", text: sample, metadata: { source: "webpage", url: location.href } }),
+          body: JSON.stringify({
+            lang: "en",
+            items: items.map(({ id, text, meta }) => ({ id, text, metadata: meta }))
+          }),
         });
         const json = await r.json();
-        MG.state.lastRiskJson = json;
+        results = Array.isArray(json?.results) ? json.results : [];
+      } else if (endpointSingle && typeof endpointSingle === "string") {
+        // Fallback: single endpoint that accepts a list; also returns { results: [...] }
+        const r = await fetch(endpointSingle, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lang: "en",
+            items: items.map(({ id, text, meta }) => ({ id, text, metadata: meta }))
+          }),
+        });
+        const json = await r.json();
+        results = Array.isArray(json?.results) ? json.results : [];
+      }
 
-        MG.setFabScore?.(Number(json.score || 0), String(json.risk || ""));
-        await MG.pushHistory?.(Number(json.score || 0));
+      if (results) {
+        // Index by id
+        const byId = new Map(results.map(r => [r.id, r]));
+
+        // Store high-risk elements with locators for later highlighting
+        const threshold = Number(prefs?.threshold ?? FALLBACK_DEFAULTS.threshold);
+        const risky = [];
+
+        let best = { score: 0, risk: "", id: null, json: null };
+        for (const item of items) {
+          const res = byId.get(item.id);
+          if (!res) continue;
+          const score = Number(res.score || 0);
+          if (score >= threshold) {
+            risky.push({
+              id: item.id,
+              score,
+              risk: String(res.risk || ""),
+              locator: item.meta.locator,
+              textSample: item.text.slice(0, 200)
+            });
+          }
+          if (score > best.score) best = { score, risk: String(res.risk || ""), id: item.id, json: res };
+        }
+
+        MG.state.highRiskElements = risky;
+        MG.state.lastRiskJson = best.json || { score: best.score, risk: best.risk };
+
+        // Update FAB / overlay using the max score
+        MG.setFabScore?.(best.score, String(best.risk || ""));
+        await MG.pushHistory?.(best.score);
 
         const tip = MG.qs?.(".marketguard-tooltip");
         if (tip) MG.drawSparklineInto?.(MG.qs("#mg-sparkline", tip));
 
-        MG.updateAutoShow(json);
+        MG.updateAutoShow(MG.state.lastRiskJson);
       }
     } catch {
-      // ignore network/parse failures
+      // ignore network/parse errors
     } finally {
       MG.state.isScanning = false;
     }
   };
 
-  // ---------- DOM observer (debounced, respects pause/selection)
-  function startObserver() {
-    // body guard (rare)
-    if (!document || !document.body) {
-      setTimeout(startObserver, 200);
-      return;
-    }
-    const observer = new MutationObserver(() => {
-      const prefs = getPrefs();
-      if (prefs.pauseScanning) return; // keep FAB shown by init/runScan; we just skip scans
-
-      if (MG.isSelectionLocked?.() || MG.hasActiveSelection?.()) {
-        clearTimeout(observer._t);
-        observer._t = setTimeout(MG.runScan, 1200);
-        return;
+  // ---------------- Heartbeat scheduler ----------------
+  let heartbeatTimer = null;
+  function startHeartbeat() {
+    clearTimeout(heartbeatTimer);
+    const tick = async () => {
+      try { await MG.runScan(); } finally {
+        heartbeatTimer = setTimeout(tick, HEARTBEAT_MS);
       }
-      const focused = document.activeElement;
-      const delay = MG.isEditable?.(focused) ? 900 : 300; // more debounce while typing
-      if (MG.state.isScanning) return;
-      clearTimeout(observer._t);
-      observer._t = setTimeout(MG.runScan, delay);
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    };
+    heartbeatTimer = setTimeout(tick, HEARTBEAT_MS);
   }
 
-  // ---------- Init
+  // ---------------- Init ----------------
   (async function init() {
-    // seed prefs first so they're always present
     ensurePrefs();
 
     // Load saved prefs (merge with defaults)
     try {
       const saved = await MG.loadSync?.(PREFS, null);
       MG.state.prefs = { ...getDefaults(), ...(saved || {}) };
-    } catch {
-      MG.state.prefs = { ...getDefaults() };
-    }
+    } catch { MG.state.prefs = { ...getDefaults() }; }
 
     // Selection guards (prevents losing selection while scanning)
     MG.initSelectionGuards?.();
@@ -160,10 +303,11 @@
     // Ensure FAB exists even if paused on load
     await MG.ensureFab?.();
 
+    // Initial scan + heartbeat every 15s
     await MG.runScan();
-    startObserver();
+    startHeartbeat();
 
-    // Toolbar force-show
+    // Force-show from toolbar
     try {
       chrome.runtime?.onMessage.addListener((msg) => {
         if (msg?.type === "MARKETGUARD_FORCE_SHOW") {
@@ -186,5 +330,10 @@
         }
       });
     } catch {}
+
+    // Re-scan when tab becomes visible again
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) MG.runScan();
+    });
   })();
 })();
