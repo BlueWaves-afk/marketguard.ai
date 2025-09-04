@@ -1,4 +1,5 @@
 // scripts/05-overlay.js (buttery-smooth, symmetric open/close; measure-once; isolated layout)
+// Updated to navigate via data-mg-id anchors, autofocus first risky element, and show a glossy "Risk Explanation" popup using the generative-explanation API.
 (() => {
   const MG = (window.MG = window.MG || {});
 
@@ -28,29 +29,60 @@
     return MG.state.prefs;
   }
 
-  // ---------- highlight navigation helpers ----------
+  // ---------- focus style for risky targets ----------
+  function injectHighlightStyles() {
+    if (document.getElementById("mg-hl-focus-style")) return;
+    const st = document.createElement("style");
+    st.id = "mg-hl-focus-style";
+    st.textContent = `
+      .mg-hl-focus {
+        outline: 3px solid #ff4d4f !important;
+        outline-offset: 2px !important;
+        animation: mgHlPulse 1.1s ease-in-out 2;
+      }
+      @keyframes mgHlPulse {
+        0% { outline-color: #ff4d4f; }
+        50% { outline-color: rgba(255,77,79,0.25); }
+        100% { outline-color: #ff4d4f; }
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  // ---------- risky element navigation helpers (via data-mg-id anchors) ----------
   MG.findHighlights = function () {
-    return Array.from(document.querySelectorAll('mark.marketguard[data-mg-flag="1"]'));
+    const prefix = MG.state?.mgAnchorPrefix || "mg-anchor-";
+    return Array.from(document.querySelectorAll(`[data-mg-id^="${prefix}"]`));
   };
+
   MG.updateHlSummary = function () {
     const tip = MG.qs(".marketguard-tooltip");
     if (!tip) return;
     const items = MG.findHighlights();
     const idx = (MG.state?.hlIndex ?? -1) + 1;
     const span = MG.qs('[data-mg-hl-summary]', tip);
-    if (span) span.textContent = items.length ? `Match ${Math.max(idx, 1)} of ${items.length}` : "No highlights";
+    if (span) span.textContent = items.length ? `Risk ${Math.max(idx, 1)} of ${items.length}` : "No risky elements";
   };
+
   MG.goToHighlight = function (delta = 0) {
+    injectHighlightStyles();
     if (!MG.state) MG.state = {};
     const items = MG.findHighlights();
     if (!items.length) { MG.state.hlIndex = -1; MG.updateHlSummary(); return null; }
+
     MG.state.hlIndex = (MG.state.hlIndex ?? -1) + delta;
     if (MG.state.hlIndex < 0) MG.state.hlIndex = items.length - 1;
     if (MG.state.hlIndex >= items.length) MG.state.hlIndex = 0;
+
     const el = items[MG.state.hlIndex];
-    items.forEach(i => i.classList.remove("mg-hl-focus"));
-    el.classList.add("mg-hl-focus");
-    try { el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" }); } catch {}
+
+    try { document.querySelectorAll(".mg-hl-focus").forEach(n => n.classList.remove("mg-hl-focus")); } catch {}
+
+    if (el) {
+      try { el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" }); } catch {}
+      try { el.classList.add("mg-hl-focus"); setTimeout(() => el.classList.remove("mg-hl-focus"), 1600); } catch {}
+    }
+
     MG.updateHlSummary();
     return el;
   };
@@ -68,6 +100,379 @@
     const modeChip = MG.qs("[data-chip-mode]", tip);
     if (modeChip) modeChip.textContent = `Mode: ${prefs.defaultMode}`;
   };
+
+  // ---------- Explain popup (glossy iOS-style sheet) ----------
+  function injectExplainStyles() {
+    if (document.getElementById("mg-explain-style")) return;
+    const st = document.createElement("style");
+    st.id = "mg-explain-style";
+    st.textContent = `
+      @keyframes mgExplainFade {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes mgSheetIn {
+        from { transform: translateY(10px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+      @keyframes mgSheetOut {
+        from { transform: translateY(0); opacity: 1; }
+        to { transform: translateY(10px); opacity: 0; }
+      }
+
+      .mg-explain-overlay {
+        position: fixed; inset: 0; z-index: 2147483647; /* above everything, incl. overlay */
+        display: grid; place-items: center;
+        padding: env(safe-area-inset-top, 12px) 12px env(safe-area-inset-bottom, 12px);
+        background: color-mix(in oklab, rgba(8,10,14,.55) 70%, rgba(8,10,14,.55));
+        -webkit-backdrop-filter: blur(12px) saturate(1.2);
+        backdrop-filter: blur(12px) saturate(1.2);
+        animation: mgExplainFade .14s ease;
+      }
+
+      .mg-explain-sheet {
+        width: min(560px, 100%);
+        max-height: min(76vh, 720px);
+        overflow: hidden;
+        border-radius: 20px;
+        position: relative;
+        box-shadow:
+          0 20px 50px rgba(0,0,0,.45),
+          0 1px 0 rgba(255,255,255,.06) inset;
+        background:
+          linear-gradient(180deg, rgba(20,22,28,.86) 0%, rgba(14,16,22,.9) 100%);
+        border: 1px solid rgba(255,255,255,.08);
+        color: #f5f7fb;
+        display: flex; flex-direction: column;
+        -webkit-backdrop-filter: blur(16px) saturate(1.1);
+        backdrop-filter: blur(16px) saturate(1.1);
+        background-clip: padding-box;
+        animation: mgSheetIn .18s cubic-bezier(.25,.9,.25,1);
+      }
+      .mg-explain-sheet::before {
+        content: "";
+        position: absolute; inset: 0;
+        background:
+          radial-gradient(80% 60% at 10% -10%, rgba(0,255,255,.08), transparent 60%),
+          radial-gradient(60% 50% at 100% 0%, rgba(0,255,200,.06), transparent 60%),
+          radial-gradient(50% 40% at 50% 120%, rgba(0,200,255,.05), transparent 60%);
+        pointer-events: none;
+      }
+
+      .mg-explain-sheet.mg-light {
+        background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(245,247,250,.96));
+        color: #111;
+        border-color: rgba(0,0,0,.08);
+        box-shadow:
+          0 20px 50px rgba(0,0,0,.25),
+          0 1px 0 rgba(255,255,255,.35) inset;
+      }
+
+      .mg-explain-header {
+        display: grid; grid-template-columns: 36px 1fr 28px; gap: 12px;
+        align-items: center;
+        padding: 14px 16px;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+      }
+      .mg-explain-sheet.mg-light .mg-explain-header {
+        border-bottom-color: rgba(0,0,0,.08);
+      }
+
+      .mg-explain-logo {
+        width: 36px; height: 36px; border-radius: 12px; overflow: hidden;
+        background: rgba(255,255,255,.06);
+        display: grid; place-items: center;
+      }
+
+      .mg-explain-title {
+        font-size: 16px; font-weight: 700; letter-spacing: .2px;
+      }
+
+      .mg-explain-close {
+        display: inline-grid; place-items: center;
+        width: 28px; height: 28px;
+        border-radius: 999px;
+        font-size: 18px; line-height: 1;
+        cursor: pointer; user-select: none;
+        background: rgba(255,255,255,.08);
+        border: 1px solid rgba(255,255,255,.12);
+        transition: transform .12s ease, opacity .12s ease;
+      }
+      .mg-explain-close:hover { opacity: 1; transform: scale(1.06); }
+      .mg-explain-sheet.mg-light .mg-explain-close {
+        background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.12);
+      }
+
+      .mg-explain-body {
+        padding: 12px 16px 16px 16px;
+        overflow: auto;
+        scrollbar-width: thin;
+      }
+
+      .mg-explain-meta {
+        display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 10px;
+      }
+
+      .mg-chip {
+        font-size: 12px; padding: 4px 10px; border-radius: 999px;
+        background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.14);
+        backdrop-filter: blur(6px);
+      }
+      .mg-explain-sheet.mg-light .mg-chip {
+        background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.08);
+      }
+
+      .mg-explain-text {
+        font-size: 14px; line-height: 1.55;
+        white-space: pre-wrap;
+      }
+
+      .mg-explain-loading {
+        font-size: 13px; opacity: .85; padding: 12px 0;
+      }
+
+      .mg-explain-error {
+        color: #ffb4b4; font-size: 13px; padding: 8px 0;
+      }
+
+      .ss-nav-btn[data-mg-explain] { margin-left: 8px; }
+    `;
+    document.head.appendChild(st);
+  }
+
+  function getLogoUrl() {
+    if (typeof MG.LOGO_URL === "string" && MG.LOGO_URL.length) return MG.LOGO_URL;
+    try { return chrome?.runtime?.getURL?.("assets/logo.png") || ""; } catch { return ""; }
+  }
+
+  function extractReadableText(el) {
+    if (!el) return "";
+    const tag = (el.tagName || "").toUpperCase();
+    if (tag === "TEXTAREA" || tag === "INPUT") return String(el.value || "");
+    if (el.hasAttribute && el.hasAttribute("contenteditable")) return String(el.innerText || el.textContent || "");
+    return String(el.innerText || el.textContent || "");
+  }
+
+  function openExplainPopup({ risk = "—", score = 0, text = "Loading...", loading = true } = {}) {
+    injectExplainStyles();
+    const prefs = MG.getPrefs?.() || getPrefs();
+    const isLight = prefs.theme === "light";
+
+    // Remove any existing explain overlays to avoid stacking
+    try { document.querySelectorAll(".mg-explain-overlay").forEach(n => n.remove()); } catch {}
+
+    // Body scroll lock
+    const prevOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+
+    const wrap = document.createElement("div");
+    wrap.className = "mg-explain-overlay";
+    wrap.setAttribute("role", "presentation");
+
+    const sheet = document.createElement("div");
+    sheet.className = "mg-explain-sheet" + (isLight ? " mg-light" : "");
+    sheet.setAttribute("role", "dialog");
+    sheet.setAttribute("aria-modal", "true");
+    sheet.setAttribute("aria-label", "Risk Explanation");
+
+    const header = document.createElement("div");
+    header.className = "mg-explain-header";
+
+    const logoBox = document.createElement("div");
+    logoBox.className = "mg-explain-logo";
+    const logoUrl = getLogoUrl();
+    logoBox.innerHTML = logoUrl
+      ? `<img src="${logoUrl}" alt="${MG.BRAND_NAME || "MarketGuard"}" style="width:28px;height:28px;border-radius:8px;" />`
+      : `<div style="width:22px;height:22px;border-radius:6px;background:#999;opacity:.5;"></div>`;
+
+    const ttl = document.createElement("div");
+    ttl.className = "mg-explain-title";
+    ttl.textContent = "Risk Explanation";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "mg-explain-close";
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "Close");
+    closeBtn.textContent = "×";
+
+    header.appendChild(logoBox);
+    header.appendChild(ttl);
+    header.appendChild(closeBtn);
+
+    const body = document.createElement("div");
+    body.className = "mg-explain-body";
+
+    const meta = document.createElement("div");
+    meta.className = "mg-explain-meta";
+    const chipRisk = document.createElement("span");
+    chipRisk.className = "mg-chip";
+    chipRisk.textContent = `Risk: ${String(risk).toUpperCase()}`;
+    const chipScore = document.createElement("span");
+    chipScore.className = "mg-chip";
+    chipScore.textContent = `Score: ${MG.pct?.(Number(score) || 0)}%`;
+    meta.appendChild(chipRisk);
+    meta.appendChild(chipScore);
+
+    const textEl = document.createElement("div");
+    textEl.className = "mg-explain-text";
+    const loadingEl = document.createElement("div");
+    loadingEl.className = "mg-explain-loading";
+    loadingEl.textContent = "Generating explanation…";
+
+    if (loading) {
+      textEl.hidden = true;
+    } else {
+      loadingEl.hidden = true;
+      textEl.textContent = text;
+    }
+
+    const errEl = document.createElement("div");
+    errEl.className = "mg-explain-error";
+    errEl.hidden = true;
+
+    body.appendChild(meta);
+    body.appendChild(loadingEl);
+    body.appendChild(textEl);
+    body.appendChild(errEl);
+
+    sheet.appendChild(header);
+    sheet.appendChild(body);
+    wrap.appendChild(sheet);
+    document.body.appendChild(wrap);
+
+    // ---- iOS-smooth pop animations (match overlay easing) ----
+    const easing = "cubic-bezier(.25,.9,.25,1)";
+    try {
+      wrap.animate([{ opacity: 0 }, { opacity: 1 }], {
+        duration: 140, easing, fill: "both", composite: "replace"
+      });
+      sheet.animate(
+        [
+          { opacity: 0, transform: "scale(.98) translateY(8px)" },
+          { opacity: 1, transform: "scale(1) translateY(0)" }
+        ],
+        { duration: 180, easing, fill: "both", composite: "replace" }
+      );
+    } catch {}
+
+    // ----- Focus trap + keyboard / backdrop close -----
+    const focusableSel = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    const focusables = () => Array.from(sheet.querySelectorAll(focusableSel)).filter(el => !el.hasAttribute('disabled'));
+    let firstFocus = document.activeElement;
+
+    const trap = (e) => {
+      if (e.key !== "Tab") return;
+      const list = focusables();
+      if (!list.length) return;
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+      else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+    };
+
+    function cleanup() {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", trap);
+      wrap.removeEventListener("click", onBackdrop);
+      document.documentElement.style.overflow = prevOverflow || "";
+    }
+
+    async function close() {
+      // pop-out symmetric close
+      try {
+        const fadeOut = wrap.animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: 120, easing, fill: "both", composite: "replace"
+        });
+        const sheetOut = sheet.animate(
+          [
+            { opacity: 1, transform: "scale(1) translateY(0)" },
+            { opacity: 0, transform: "scale(.985) translateY(8px)" }
+          ],
+          { duration: 160, easing, fill: "forwards", composite: "replace" }
+        );
+        await Promise.allSettled([fadeOut.finished, sheetOut.finished]);
+      } catch {}
+      try { document.body.removeChild(wrap); } catch {}
+      cleanup();
+      if (firstFocus && typeof firstFocus.focus === "function") firstFocus.focus();
+    }
+
+    function onBackdrop(e) {
+      if (e.target === wrap) close();
+    }
+    function onKey(e) {
+      if (e.key === "Escape") close();
+    }
+
+    // Wire up close button (fix)
+    closeBtn.addEventListener("click", close);
+
+    wrap.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", trap);
+
+    // initial focus into dialog
+    closeBtn.focus();
+
+    return {
+      setData({ risk, score, text }) {
+        chipRisk.textContent = `Risk: ${String(risk).toUpperCase()}`;
+        chipScore.textContent = `Score: ${MG.pct?.(Number(score) || 0)}%`;
+        textEl.textContent = text || "";
+        loadingEl.hidden = true;
+        textEl.hidden = false;
+        errEl.hidden = true;
+      },
+      setError(msg) {
+        loadingEl.hidden = true;
+        textEl.hidden = true;
+        errEl.textContent = msg || "Failed to generate explanation.";
+        errEl.hidden = false;
+      },
+      close
+    };
+  }
+
+
+  async function explainCurrentHighlight() {
+    const endpoint = MG?.API?.NLP_GENERATIVE_EXPLANATION;
+    if (!endpoint || typeof endpoint !== "string") {
+      alert("Generative explanation API not configured.");
+      return;
+    }
+
+    const el = MG.goToHighlight(0) || (function(){
+      const list = MG.findHighlights();
+      return list.length ? list[0] : null;
+    })();
+
+    if (!el) { alert("No risky element to explain."); return; }
+
+    const text = extractReadableText(el).trim();
+    if (!text) { alert("Couldn't extract text from this element."); return; }
+
+    const popup = openExplainPopup({ loading: true, risk: MG.state?.lastRiskJson?.risk || "—", score: MG.state?.lastRiskJson?.score || 0 });
+
+    try {
+      const r = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        popup.setError(j?.detail || "Server error.");
+        return;
+      }
+      popup.setData({
+        risk: j?.risk || "—",
+        score: Number(j?.score || 0),
+        text: String(j?.explanation || "").trim() || "No explanation returned."
+      });
+    } catch (e) {
+      popup.setError("Network error. Please try again.");
+    }
+  }
 
   // ---------- mount overlay shell ----------
   MG.mountOverlayShell = () => {
@@ -94,14 +499,14 @@
     const header = document.createElement("div");
     header.className = "ss-header";
 
-    function getLogoUrl() {
+    function getLogoUrlLocal() {
       if (typeof MG.LOGO_URL === "string" && MG.LOGO_URL.length) return MG.LOGO_URL;
       try { return chrome?.runtime?.getURL?.("assets/logo.png") || ""; } catch { return ""; }
     }
 
     const avatar = document.createElement("div");
     avatar.className = "ss-avatar ss-avatar--logo";
-    const logoUrl = getLogoUrl();
+    const logoUrl = getLogoUrlLocal();
     avatar.innerHTML = logoUrl
       ? `<img class="ss-avatar-img" src="${logoUrl}" alt="${MG.BRAND_NAME || "MarketGuard"} logo" decoding="async" loading="eager" />`
       : `<div class="ss-avatar-fallback" aria-hidden="true"></div>`;
@@ -154,7 +559,8 @@
         <div class="ss-left-actions">
           <button class="ss-nav-btn" data-mg-prev>◀ Prev</button>
           <button class="ss-nav-btn" data-mg-next>Next ▶</button>
-          <span data-mg-hl-summary>No highlights</span>
+          <button class="ss-nav-btn" data-mg-explain>Explain</button>
+          <span data-mg-hl-summary>No risky elements</span>
         </div>
         <div class="ss-right-actions">
           <button class="ss-btn ss-btn--danger" data-mg-report>Report to SEBI (SCORES)</button>
@@ -202,11 +608,13 @@
     // Wire action buttons
     const btnPrev   = MG.qs('[data-mg-prev]', tip);
     const btnNext   = MG.qs('[data-mg-next]', tip);
+    const btnExplain= MG.qs('[data-mg-explain]', tip);
     const btnReport = MG.qs('[data-mg-report]', tip);
     const btnVerify = MG.qs('[data-mg-verify]', tip);
 
     btnPrev?.addEventListener('click', () => MG.goToHighlight(-1));
     btnNext?.addEventListener('click', () => MG.goToHighlight(+1));
+    btnExplain?.addEventListener('click', () => explainCurrentHighlight());
 
     btnReport?.addEventListener('click', () => {
       const url = 'https://scores.sebi.gov.in/';
@@ -239,6 +647,15 @@
     MG.applyPrefsToOverlay?.(tip);
     MG.updateHlSummary?.();
 
+    // --------- Autofocus first risky element on open ----------
+    const hasRisky = MG.findHighlights().length > 0;
+    if (hasRisky) {
+      if (!MG.state) MG.state = {};
+      MG.state.hlIndex = -1; // reset so +1 goes to index 0
+      setTimeout(() => MG.goToHighlight(+1), 300); // small delay so overlay is fully visible
+    }
+    // ----------------------------------------------------------
+
     return tip;
   };
 
@@ -257,7 +674,6 @@
     const inner = getInner(el);
     el.hidden = false;
 
-    // isolate layout & promote layer during anim
     el.style.contain = "layout paint size";
     el.style.overflow = "clip";
     el.style.willChange = "height";
@@ -265,12 +681,10 @@
     inner.style.opacity = "0";
     inner.style.transform = "translateY(8px)";
 
-    // measure once
     el.style.height = "auto";
     await settleLayout();
     const targetH = el.scrollHeight;
 
-    // set start frame
     el.style.height = "0px";
 
     const easing = "cubic-bezier(.25,.9,.25,1)";
@@ -287,7 +701,6 @@
 
     await Promise.allSettled([heightAnim.finished, innerAnim.finished]);
 
-    // cleanup -> natural sizing
     el.style.height = "";
     el.style.contain = "";
     el.style.overflow = "";
@@ -304,18 +717,15 @@
 
     const inner = getInner(el);
 
-    // isolate layout & promote layer during anim
     el.style.contain = "layout paint size";
     el.style.overflow = "clip";
     el.style.willChange = "height";
     inner.style.willChange = "opacity, transform";
 
-    // measure once
     el.style.height = "auto";
     await settleLayout();
     const startH = el.scrollHeight;
 
-    // start frame
     el.style.height = startH + "px";
     inner.style.opacity = "1";
     inner.style.transform = "translateY(0)";
@@ -334,7 +744,6 @@
 
     await Promise.allSettled([heightAnim.finished, innerAnim.finished]);
 
-    // finalize
     el.hidden = true;
     el.style.height = "";
     el.style.contain = "";

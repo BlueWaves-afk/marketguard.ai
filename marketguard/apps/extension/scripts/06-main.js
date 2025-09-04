@@ -1,6 +1,6 @@
 // scripts/06-main.js
 // Full-page structured scan on load and every 15s.
-// Sends per-element texts to NLP; stores high-risk element locations for later highlighting.
+// Sends per-element texts to NLP; stores high-risk element locations + stable data-mg-id anchors.
 (() => {
   const MG = (window.MG = window.MG || {});
   const { PREFS } = (MG.KEYS = MG.KEYS || { PREFS: "marketGuardPrefs" });
@@ -27,15 +27,16 @@
 
   // ---------------- Limits (sane perf caps) ----------------
   const HEARTBEAT_MS = 15000;
-  const PER_EL_CHAR_LIMIT = 800;     // max chars per element text
-  const TOTAL_CHAR_BUDGET = 12000;   // total chars across all items
-  const MAX_ITEMS = 500;             // absolute cap on items per scan
+  const PER_EL_CHAR_LIMIT = 800;
+  const TOTAL_CHAR_BUDGET = 12000;
+  const MAX_ITEMS = 500;
 
   // ---------------- State ----------------
   MG.state = MG.state || {};
   MG.state.isScanning = false;
   MG.state.lastRiskJson = MG.state.lastRiskJson || null;
-  MG.state.highRiskElements = [];  // [{id, score, risk, locator:{cssPath,rect}, textSample}]
+  MG.state.highRiskElements = [];     // [{id, mgid, score, risk, locator:{cssPath,rect}, textSample}]
+  MG.state.mgAnchorPrefix = "mg-anchor-";
 
   // ---------------- Auto-show logic ----------------
   MG.updateAutoShow = function updateAutoShow(json) {
@@ -103,7 +104,6 @@
 
   // Collect a reasonable set of text-bearing elements (including editables).
   function collectElementsForScan() {
-    // Common text carriers + editables
     const selector = [
       "p","div","span","li","a","td","th",
       "h1","h2","h3","h4","h5","h6","label","blockquote","figcaption",
@@ -122,20 +122,17 @@
       let text = "";
       let type = el.tagName.toLowerCase();
 
-      // Editable values
       if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.hasAttribute("contenteditable")) {
         text = textFromEditable(el);
         const hint = (el.getAttribute("placeholder") || el.getAttribute("aria-label") || "").trim();
         if (hint) text = (text ? (text + "\n") : "") + hint;
       } else {
-        // Non-editable visible text
         text = String(el.innerText || el.textContent || "");
       }
 
       text = text.trim();
       if (!text) continue;
 
-      // Truncate per-element and respect global budget
       let chunk = text.slice(0, PER_EL_CHAR_LIMIT);
       if (totalChars + chunk.length > TOTAL_CHAR_BUDGET) {
         const remaining = Math.max(0, TOTAL_CHAR_BUDGET - totalChars);
@@ -158,7 +155,7 @@
       if (items.length >= MAX_ITEMS || totalChars >= TOTAL_CHAR_BUDGET) break;
     }
 
-    // Always include a page-level aggregate at the end (helps with overall context)
+    // Page-level aggregate at the end
     const pageText = (document.body?.innerText || "").trim().slice(0, Math.max(2000, PER_EL_CHAR_LIMIT));
     if (pageText) {
       items.push({
@@ -170,6 +167,14 @@
     }
 
     return items;
+  }
+
+  // Remove previous anchors we created
+  function clearOldAnchors() {
+    try {
+      const sel = `[data-mg-id^="${MG.state.mgAnchorPrefix}"]`;
+      document.querySelectorAll(sel).forEach((el) => el.removeAttribute("data-mg-id"));
+    } catch {}
   }
 
   // ---------------- Main scan (every 15s + on-load) ----------------
@@ -200,7 +205,6 @@
       let results = null;
 
       if (endpointBatch && typeof endpointBatch === "string") {
-        // Preferred: batch endpoint returns { results: [{id, score, risk, ...}, ...] }
         const r = await fetch(endpointBatch, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -212,7 +216,6 @@
         const json = await r.json();
         results = Array.isArray(json?.results) ? json.results : [];
       } else if (endpointSingle && typeof endpointSingle === "string") {
-        // Fallback: single endpoint that accepts a list; also returns { results: [...] }
         const r = await fetch(endpointSingle, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -226,34 +229,40 @@
       }
 
       if (results) {
-        // Index by id
-        const byId = new Map(results.map(r => [r.id, r]));
+        // New pass → clear old anchors first
+        clearOldAnchors();
 
-        // Store high-risk elements with locators for later highlighting
+        const byId = new Map(results.map(r => [r.id, r]));
         const threshold = Number(prefs?.threshold ?? FALLBACK_DEFAULTS.threshold);
         const risky = [];
 
         let best = { score: 0, risk: "", id: null, json: null };
+
         for (const item of items) {
           const res = byId.get(item.id);
           if (!res) continue;
           const score = Number(res.score || 0);
-          if (score >= threshold) {
+
+          // Assign a stable data-mg-id when risky
+          if (score >= threshold && item.el && item.el.setAttribute) {
+            const mgid = `${MG.state.mgAnchorPrefix}${Date.now()}-${item.id}`;
+            try { item.el.setAttribute("data-mg-id", mgid); } catch {}
             risky.push({
               id: item.id,
+              mgid,
               score,
               risk: String(res.risk || ""),
               locator: item.meta.locator,
               textSample: item.text.slice(0, 200)
             });
           }
+
           if (score > best.score) best = { score, risk: String(res.risk || ""), id: item.id, json: res };
         }
 
         MG.state.highRiskElements = risky;
         MG.state.lastRiskJson = best.json || { score: best.score, risk: best.risk };
 
-        // Update FAB / overlay using the max score
         MG.setFabScore?.(best.score, String(best.risk || ""));
         await MG.pushHistory?.(best.score);
 
@@ -261,6 +270,8 @@
         if (tip) MG.drawSparklineInto?.(MG.qs("#mg-sparkline", tip));
 
         MG.updateAutoShow(MG.state.lastRiskJson);
+        // Let overlay refresh its summary if mounted
+        MG.updateRiskSummary?.();
       }
     } catch {
       // ignore network/parse errors
@@ -285,29 +296,23 @@
   (async function init() {
     ensurePrefs();
 
-    // Load saved prefs (merge with defaults)
     try {
       const saved = await MG.loadSync?.(PREFS, null);
       MG.state.prefs = { ...getDefaults(), ...(saved || {}) };
     } catch { MG.state.prefs = { ...getDefaults() }; }
 
-    // Selection guards (prevents losing selection while scanning)
     MG.initSelectionGuards?.();
 
-    // Optional pre-open
     if ((MG.state.prefs.defaultMode || "compact") === "expanded") {
       MG.state.overlayClosed = false;
       MG.updateOverlay?.({ risk: "—", score: 0, lang: "EN" });
     }
 
-    // Ensure FAB exists even if paused on load
     await MG.ensureFab?.();
 
-    // Initial scan + heartbeat every 15s
     await MG.runScan();
     startHeartbeat();
 
-    // Force-show from toolbar
     try {
       chrome.runtime?.onMessage.addListener((msg) => {
         if (msg?.type === "MARKETGUARD_FORCE_SHOW") {
@@ -319,7 +324,6 @@
       });
     } catch {}
 
-    // Live settings across tabs
     try {
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area === "sync" && changes[PREFS]) {
@@ -327,11 +331,11 @@
           const tip = MG.qs?.(".marketguard-tooltip");
           if (tip) MG.applyPrefsToOverlay?.(tip);
           if (MG.state.lastRiskJson) MG.updateAutoShow(MG.state.lastRiskJson);
+          MG.updateRiskSummary?.();
         }
       });
     } catch {}
 
-    // Re-scan when tab becomes visible again
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) MG.runScan();
     });

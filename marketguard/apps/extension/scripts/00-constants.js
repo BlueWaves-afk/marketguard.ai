@@ -5,6 +5,8 @@
   // ---- API endpoints
   MG.API = {
     NLP: "http://localhost:8002/api/nlp/v1/score",
+    NLP_BATCH: "http://localhost:8002/api/nlp/v1/batch-score", // added if you want batching
+    NLP_GENERATIVE_EXPLANATION: "http://localhost:8002/api/nlp/v1/generative-explanation", // NEW
     CHECK_UPI: "http://localhost:8003/api/check/v1/upi-verify",
     REGISTRY: "http://localhost:8001/api/registry/v1/verify",
   };
