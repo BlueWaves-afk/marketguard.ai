@@ -1,7 +1,12 @@
 // scripts/05-overlay.js (buttery-smooth, symmetric open/close; measure-once; isolated layout)
-// Updated to navigate via data-mg-id anchors, autofocus first risky element, and show a glossy "Risk Explanation" popup using the generative-explanation API.
+// Updated to navigate via data-mg-id anchors, autofocus first risky element, glossy "Risk Explanation" popup,
+// AND: wire Verify button to SEBI registry service + auto-badge UPI IDs with inline verify chips.
 (() => {
   const MG = (window.MG = window.MG || {});
+
+  // ---------- API defaults (override via your constants file if you like) ----------
+  MG.API = MG.API || {};
+  MG.API.SEBI_REGISTRY = MG.API.SEBI_REGISTRY || "http://localhost:8001/api/registry/v1/verify";
 
   // ---------- small safe fallbacks ----------
   MG.qs = MG.qs || ((sel, root = document) => root.querySelector(sel));
@@ -45,6 +50,29 @@
         50% { outline-color: rgba(255,77,79,0.25); }
         100% { outline-color: #ff4d4f; }
       }
+    `;
+    document.head.appendChild(st);
+  }
+
+  // ---------- tiny UPI chip styles ----------
+  function injectUpiChipStyles() {
+    if (document.getElementById("mg-upi-chip-style")) return;
+    const st = document.createElement("style");
+    st.id = "mg-upi-chip-style";
+    st.textContent = `
+      .mg-upi-wrap { display:inline-flex; align-items:center; gap:6px; }
+      .mg-upi-badge { font-weight:600; opacity:.85; }
+      .mg-upi-chip {
+        display:inline-flex; align-items:center; gap:6px;
+        font-size:11px; line-height:1;
+        padding:3px 6px; border-radius:999px;
+        border:1px solid rgba(255,255,255,.18);
+        background:rgba(255,255,255,.08);
+        color:#f8f8f8; cursor:pointer; user-select:none;
+      }
+      .mg-theme-light .mg-upi-chip { background:rgba(0,0,0,.06); color:#222; border-color:rgba(0,0,0,.12); }
+      .mg-upi-chip:hover { filter:brightness(1.1); }
+      .mg-upi-chip[disabled] { opacity:.6; cursor:default; }
     `;
     document.head.appendChild(st);
   }
@@ -107,134 +135,40 @@
     const st = document.createElement("style");
     st.id = "mg-explain-style";
     st.textContent = `
-      @keyframes mgExplainFade {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-      @keyframes mgSheetIn {
-        from { transform: translateY(10px); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
-      }
-      @keyframes mgSheetOut {
-        from { transform: translateY(0); opacity: 1; }
-        to { transform: translateY(10px); opacity: 0; }
-      }
-
-      .mg-explain-overlay {
-        position: fixed; inset: 0; z-index: 2147483647; /* above everything, incl. overlay */
-        display: grid; place-items: center;
+      @keyframes mgExplainFade { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes mgSheetIn { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+      @keyframes mgSheetOut { from { transform: translateY(0); opacity: 1; } to { transform: translateY(10px); opacity: 0; } }
+      .mg-explain-overlay { position: fixed; inset: 0; z-index: 2147483647; display: grid; place-items: center;
         padding: env(safe-area-inset-top, 12px) 12px env(safe-area-inset-bottom, 12px);
         background: color-mix(in oklab, rgba(8,10,14,.55) 70%, rgba(8,10,14,.55));
-        -webkit-backdrop-filter: blur(12px) saturate(1.2);
-        backdrop-filter: blur(12px) saturate(1.2);
-        animation: mgExplainFade .14s ease;
-      }
-
-      .mg-explain-sheet {
-        width: min(560px, 100%);
-        max-height: min(76vh, 720px);
-        overflow: hidden;
-        border-radius: 20px;
-        position: relative;
-        box-shadow:
-          0 20px 50px rgba(0,0,0,.45),
-          0 1px 0 rgba(255,255,255,.06) inset;
-        background:
-          linear-gradient(180deg, rgba(20,22,28,.86) 0%, rgba(14,16,22,.9) 100%);
-        border: 1px solid rgba(255,255,255,.08);
-        color: #f5f7fb;
-        display: flex; flex-direction: column;
-        -webkit-backdrop-filter: blur(16px) saturate(1.1);
-        backdrop-filter: blur(16px) saturate(1.1);
-        background-clip: padding-box;
-        animation: mgSheetIn .18s cubic-bezier(.25,.9,.25,1);
-      }
-      .mg-explain-sheet::before {
-        content: "";
-        position: absolute; inset: 0;
-        background:
-          radial-gradient(80% 60% at 10% -10%, rgba(0,255,255,.08), transparent 60%),
-          radial-gradient(60% 50% at 100% 0%, rgba(0,255,200,.06), transparent 60%),
-          radial-gradient(50% 40% at 50% 120%, rgba(0,200,255,.05), transparent 60%);
-        pointer-events: none;
-      }
-
-      .mg-explain-sheet.mg-light {
-        background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(245,247,250,.96));
-        color: #111;
-        border-color: rgba(0,0,0,.08);
-        box-shadow:
-          0 20px 50px rgba(0,0,0,.25),
-          0 1px 0 rgba(255,255,255,.35) inset;
-      }
-
-      .mg-explain-header {
-        display: grid; grid-template-columns: 36px 1fr 28px; gap: 12px;
-        align-items: center;
-        padding: 14px 16px;
-        border-bottom: 1px solid rgba(255,255,255,.08);
-      }
-      .mg-explain-sheet.mg-light .mg-explain-header {
-        border-bottom-color: rgba(0,0,0,.08);
-      }
-
-      .mg-explain-logo {
-        width: 36px; height: 36px; border-radius: 12px; overflow: hidden;
-        background: rgba(255,255,255,.06);
-        display: grid; place-items: center;
-      }
-
-      .mg-explain-title {
-        font-size: 16px; font-weight: 700; letter-spacing: .2px;
-      }
-
-      .mg-explain-close {
-        display: inline-grid; place-items: center;
-        width: 28px; height: 28px;
-        border-radius: 999px;
-        font-size: 18px; line-height: 1;
-        cursor: pointer; user-select: none;
-        background: rgba(255,255,255,.08);
-        border: 1px solid rgba(255,255,255,.12);
-        transition: transform .12s ease, opacity .12s ease;
-      }
+        -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
+        animation: mgExplainFade .14s ease; }
+      .mg-explain-sheet { width: min(560px, 100%); max-height: min(76vh, 720px); overflow: hidden; border-radius: 20px;
+        position: relative; box-shadow: 0 20px 50px rgba(0,0,0,.45), 0 1px 0 rgba(255,255,255,.06) inset;
+        background: linear-gradient(180deg, rgba(20,22,28,.86) 0%, rgba(14,16,22,.9) 100%); border: 1px solid rgba(255,255,255,.08);
+        color: #f5f7fb; display: flex; flex-direction: column; -webkit-backdrop-filter: blur(16px) saturate(1.1);
+        backdrop-filter: blur(16px) saturate(1.1); background-clip: padding-box; animation: mgSheetIn .18s cubic-bezier(.25,.9,.25,1); }
+      .mg-explain-sheet.mg-light { background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(245,247,250,.96));
+        color: #111; border-color: rgba(0,0,0,.08); box-shadow: 0 20px 50px rgba(0,0,0,.25), 0 1px 0 rgba(255,255,255,.35) inset; }
+      .mg-explain-header { display: grid; grid-template-columns: 36px 1fr 28px; gap: 12px; align-items: center;
+        padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
+      .mg-explain-sheet.mg-light .mg-explain-header { border-bottom-color: rgba(0,0,0,.08); }
+      .mg-explain-logo { width: 36px; height: 36px; border-radius: 12px; overflow: hidden; background: rgba(255,255,255,.06);
+        display: grid; place-items: center; }
+      .mg-explain-title { font-size: 16px; font-weight: 700; letter-spacing: .2px; }
+      .mg-explain-close { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 999px;
+        font-size: 18px; line-height: 1; cursor: pointer; user-select: none; background: rgba(255,255,255,.08);
+        border: 1px solid rgba(255,255,255,.12); transition: transform .12s ease, opacity .12s ease; }
       .mg-explain-close:hover { opacity: 1; transform: scale(1.06); }
-      .mg-explain-sheet.mg-light .mg-explain-close {
-        background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.12);
-      }
-
-      .mg-explain-body {
-        padding: 12px 16px 16px 16px;
-        overflow: auto;
-        scrollbar-width: thin;
-      }
-
-      .mg-explain-meta {
-        display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 10px;
-      }
-
-      .mg-chip {
-        font-size: 12px; padding: 4px 10px; border-radius: 999px;
-        background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.14);
-        backdrop-filter: blur(6px);
-      }
-      .mg-explain-sheet.mg-light .mg-chip {
-        background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.08);
-      }
-
-      .mg-explain-text {
-        font-size: 14px; line-height: 1.55;
-        white-space: pre-wrap;
-      }
-
-      .mg-explain-loading {
-        font-size: 13px; opacity: .85; padding: 12px 0;
-      }
-
-      .mg-explain-error {
-        color: #ffb4b4; font-size: 13px; padding: 8px 0;
-      }
-
+      .mg-explain-sheet.mg-light .mg-explain-close { background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.12); }
+      .mg-explain-body { padding: 12px 16px 16px 16px; overflow: auto; scrollbar-width: thin; }
+      .mg-explain-meta { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 10px; }
+      .mg-chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.10);
+        border: 1px solid rgba(255,255,255,.14); backdrop-filter: blur(6px); }
+      .mg-explain-sheet.mg-light .mg-chip { background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.08); }
+      .mg-explain-text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; }
+      .mg-explain-loading { font-size: 13px; opacity: .85; padding: 12px 0; }
+      .mg-explain-error { color: #ffb4b4; font-size: 13px; padding: 8px 0; }
       .ss-nav-btn[data-mg-explain] { margin-left: 8px; }
     `;
     document.head.appendChild(st);
@@ -258,17 +192,12 @@
     const prefs = MG.getPrefs?.() || getPrefs();
     const isLight = prefs.theme === "light";
 
-    // Remove any existing explain overlays to avoid stacking
     try { document.querySelectorAll(".mg-explain-overlay").forEach(n => n.remove()); } catch {}
-
-    // Body scroll lock
     const prevOverflow = document.documentElement.style.overflow;
     document.documentElement.style.overflow = "hidden";
 
     const wrap = document.createElement("div");
     wrap.className = "mg-explain-overlay";
-    wrap.setAttribute("role", "presentation");
-
     const sheet = document.createElement("div");
     sheet.className = "mg-explain-sheet" + (isLight ? " mg-light" : "");
     sheet.setAttribute("role", "dialog");
@@ -340,32 +269,21 @@
     wrap.appendChild(sheet);
     document.body.appendChild(wrap);
 
-    // ---- iOS-smooth pop animations (match overlay easing) ----
     const easing = "cubic-bezier(.25,.9,.25,1)";
     try {
-      wrap.animate([{ opacity: 0 }, { opacity: 1 }], {
-        duration: 140, easing, fill: "both", composite: "replace"
-      });
-      sheet.animate(
-        [
-          { opacity: 0, transform: "scale(.98) translateY(8px)" },
-          { opacity: 1, transform: "scale(1) translateY(0)" }
-        ],
-        { duration: 180, easing, fill: "both", composite: "replace" }
-      );
+      wrap.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, easing, fill: "both", composite: "replace" });
+      sheet.animate([{ opacity: 0, transform: "scale(.98) translateY(8px)" }, { opacity: 1, transform: "scale(1) translateY(0)" }],
+                    { duration: 180, easing, fill: "both", composite: "replace" });
     } catch {}
 
-    // ----- Focus trap + keyboard / backdrop close -----
     const focusableSel = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
     const focusables = () => Array.from(sheet.querySelectorAll(focusableSel)).filter(el => !el.hasAttribute('disabled'));
     let firstFocus = document.activeElement;
 
     const trap = (e) => {
       if (e.key !== "Tab") return;
-      const list = focusables();
-      if (!list.length) return;
-      const first = list[0];
-      const last = list[list.length - 1];
+      const list = focusables(); if (!list.length) return;
+      const first = list[0], last = list[list.length - 1];
       if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
       else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
     };
@@ -378,18 +296,11 @@
     }
 
     async function close() {
-      // pop-out symmetric close
       try {
-        const fadeOut = wrap.animate([{ opacity: 1 }, { opacity: 0 }], {
-          duration: 120, easing, fill: "both", composite: "replace"
-        });
-        const sheetOut = sheet.animate(
-          [
-            { opacity: 1, transform: "scale(1) translateY(0)" },
-            { opacity: 0, transform: "scale(.985) translateY(8px)" }
-          ],
-          { duration: 160, easing, fill: "forwards", composite: "replace" }
-        );
+        const fadeOut = wrap.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, easing, fill: "both", composite: "replace" });
+        const sheetOut = sheet.animate([{ opacity: 1, transform: "scale(1) translateY(0)" },
+                                        { opacity: 0, transform: "scale(.985) translateY(8px)" }],
+                                       { duration: 160, easing, fill: "forwards", composite: "replace" });
         await Promise.allSettled([fadeOut.finished, sheetOut.finished]);
       } catch {}
       try { document.body.removeChild(wrap); } catch {}
@@ -397,21 +308,13 @@
       if (firstFocus && typeof firstFocus.focus === "function") firstFocus.focus();
     }
 
-    function onBackdrop(e) {
-      if (e.target === wrap) close();
-    }
-    function onKey(e) {
-      if (e.key === "Escape") close();
-    }
+    function onBackdrop(e) { if (e.target === wrap) close(); }
+    function onKey(e) { if (e.key === "Escape") close(); }
 
-    // Wire up close button (fix)
     closeBtn.addEventListener("click", close);
-
     wrap.addEventListener("click", onBackdrop);
     document.addEventListener("keydown", onKey);
     document.addEventListener("keydown", trap);
-
-    // initial focus into dialog
     closeBtn.focus();
 
     return {
@@ -433,7 +336,6 @@
     };
   }
 
-
   async function explainCurrentHighlight() {
     const endpoint = MG?.API?.NLP_GENERATIVE_EXPLANATION;
     if (!endpoint || typeof endpoint !== "string") {
@@ -454,25 +356,119 @@
     const popup = openExplainPopup({ loading: true, risk: MG.state?.lastRiskJson?.risk || "—", score: MG.state?.lastRiskJson?.score || 0 });
 
     try {
-      const r = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text })
-      });
+      const r = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
       const j = await r.json();
-      if (!r.ok) {
-        popup.setError(j?.detail || "Server error.");
-        return;
-      }
-      popup.setData({
-        risk: j?.risk || "—",
-        score: Number(j?.score || 0),
-        text: String(j?.explanation || "").trim() || "No explanation returned."
-      });
+      if (!r.ok) { popup.setError(j?.detail || "Server error."); return; }
+      popup.setData({ risk: j?.risk || "—", score: Number(j?.score || 0), text: String(j?.explanation || "").trim() || "No explanation returned." });
     } catch (e) {
       popup.setError("Network error. Please try again.");
     }
   }
+
+  // ---------- Registry verification helpers ----------
+  const RE_SEBI_REG = /\bIN[AHZP]\d{8}\b/i;        // INA/INH/INZ/INP + 8 digits
+  const RE_PAN      = /\b[A-Z]{5}\d{4}[A-Z]\b/i;   // AAAAA9999A (synthetic)
+  const RE_UPI      = /\b[a-z0-9._-]+@(ybl|oksbi|axl|paytm)\b/i;
+
+  function classifyQuery(text) {
+    const t = String(text || "").trim();
+    if (!t) return null;
+    if (RE_SEBI_REG.test(t)) return { kind: "reg_no", value: t.toUpperCase() };
+    if (RE_PAN.test(t))      return { kind: "pan",    value: t.toUpperCase() };
+    if (RE_UPI.test(t))      return { kind: "upi",    value: t.toLowerCase() };
+    return { kind: "name", value: t }; // fallback to name
+  }
+
+  async function registryVerify(params) {
+    const base = MG?.API?.SEBI_REGISTRY;
+    if (!base) throw new Error("SEBI registry API not configured");
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
+    const url = `${base}?${qs.toString()}`;
+    const r = await fetch(url, { method: "GET" });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.detail || "Registry service error");
+    return j;
+  }
+
+  function summarizeMatches(json) {
+    const n = Number(json?.count || 0);
+    if (!n) return "No match";
+    const first = json.matches[0];
+    const who = first?.full_name || first?.username || first?.upi_id || first?.sebi_reg_no || "match";
+    const typ = first?.intermediary_type ? ` • ${first.intermediary_type}` : "";
+    const risk = first?.risk?.level ? ` • ${first.risk.level}` : "";
+    return `${n} match${n>1?"es":""}: ${who}${typ}${risk}`;
+  }
+
+  // ---------- Auto-scan & badge UPI IDs ----------
+  function textNodesUnder(root) {
+    const walker = document.createTreeWalker(root || document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        const p = node.parentElement;
+        if (!p) return NodeFilter.FILTER_REJECT;
+        const tag = p.tagName?.toLowerCase();
+        if (["script", "style", "noscript", "code"].includes(tag)) return NodeFilter.FILTER_REJECT;
+        if (p.closest?.("[contenteditable], [aria-hidden='true'], .mg-upi-wrap")) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const list = []; let n; while ((n = walker.nextNode())) list.push(n);
+    return list;
+  }
+
+  function makeUpiChip(upi) {
+    const wrap = document.createElement("span");
+    wrap.className = "mg-upi-wrap";
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "mg-upi-chip";
+    chip.textContent = "Verify UPI";
+    chip.addEventListener("click", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      chip.disabled = true; const old = chip.textContent; chip.textContent = "…";
+      try {
+        const json = await registryVerify({ upi: upi.toLowerCase() });
+        chip.textContent = summarizeMatches(json);
+      } catch (err) {
+        chip.textContent = "Error";
+      } finally {
+        setTimeout(() => { chip.textContent = old; chip.disabled = false; }, 1600);
+      }
+    });
+    wrap.appendChild(chip);
+    return wrap;
+  }
+
+  function decorateUPIsInNode(textNode) {
+    const text = textNode.nodeValue;
+    if (!RE_UPI.test(text)) return;
+
+    const frag = document.createDocumentFragment();
+    let lastIndex = 0;
+    text.replace(new RegExp(RE_UPI, "gi"), (match, _handle, idx) => {
+      frag.appendChild(document.createTextNode(text.slice(lastIndex, idx)));
+      const upiSpan = document.createElement("span");
+      upiSpan.className = "mg-upi-wrap";
+      const upiText = document.createElement("span");
+      upiText.className = "mg-upi-badge";
+      upiText.textContent = match;
+      upiSpan.appendChild(upiText);
+      upiSpan.appendChild(makeUpiChip(match));
+      frag.appendChild(upiSpan);
+      lastIndex = idx + match.length;
+      return match;
+    });
+    frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+    textNode.parentNode?.replaceChild(frag, textNode);
+  }
+
+  MG.scanAndBadgeUPIs = function scanAndBadgeUPIs(root = document.body) {
+    injectUpiChipStyles();
+    const nodes = textNodesUnder(root);
+    for (const n of nodes) decorateUPIsInNode(n);
+  };
 
   // ---------- mount overlay shell ----------
   MG.mountOverlayShell = () => {
@@ -621,24 +617,26 @@
       try { window.open(url, '_blank', 'noopener,noreferrer'); } catch { location.href = url; }
     });
 
+    // ---- Verify button wired to registry service (supports reg_no / pan / upi / name) ----
     btnVerify?.addEventListener('click', async () => {
       const text = String(window.getSelection?.()?.toString() || '').trim();
-      if (!text) { alert('Select advisor name or SEBI regn no. on the page, then click Verify.'); return; }
+      if (!text) { alert('Select advisor name or SEBI regn no./PAN/UPI on the page, then click Verify.'); return; }
+
+      const cls = classifyQuery(text);
+      if (!cls) { alert('Could not classify your selection.'); return; }
+
+      const params = {}; params[cls.kind] = cls.value;
+      if (cls.kind === "name") params.fuzzy = 1;
+
       try {
-        const endpoint = MG?.API?.VERIFY;
-        if (!endpoint) { alert('Verify API not configured'); return; }
         btnVerify.disabled = true; btnVerify.textContent = 'Verifying...';
-        const r = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: text, url: location.href })
-        });
-        const j = await r.json();
-        btnVerify.textContent = j?.status || j?.result || 'Done';
-      } catch {
+        const json = await registryVerify(params);
+        btnVerify.textContent = summarizeMatches(json);
+      } catch (e) {
+        console.error(e);
         btnVerify.textContent = 'Error';
       } finally {
-        setTimeout(() => { btnVerify.textContent = 'Verify Advisor (select text)'; btnVerify.disabled = false; }, 1200);
+        setTimeout(() => { btnVerify.textContent = 'Verify Advisor (select text)'; btnVerify.disabled = false; }, 1600);
       }
     });
 
@@ -652,9 +650,21 @@
     if (hasRisky) {
       if (!MG.state) MG.state = {};
       MG.state.hlIndex = -1; // reset so +1 goes to index 0
-      setTimeout(() => MG.goToHighlight(+1), 300); // small delay so overlay is fully visible
+      setTimeout(() => MG.goToHighlight(+1), 300);
     }
-    // ----------------------------------------------------------
+
+    // --------- NEW: scan DOM for UPI IDs & add inline verify chips ----------
+    try { MG.scanAndBadgeUPIs?.(document.body); } catch {}
+    try {
+      const mo = new MutationObserver((muts) => {
+        for (const m of muts) {
+          if (m.type === "childList" && (m.addedNodes?.length || 0) > 0) {
+            MG.scanAndBadgeUPIs?.(m.target || document.body);
+          }
+        }
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+    } catch {}
 
     return tip;
   };
@@ -688,26 +698,16 @@
     el.style.height = "0px";
 
     const easing = "cubic-bezier(.25,.9,.25,1)";
-    const heightAnim = el.animate(
-      [{ height: "0px" }, { height: targetH + "px" }],
-      { duration: dur, easing, fill: "both", composite: "replace" }
-    );
-    const innerAnim = inner.animate(
-      [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "translateY(0)" }],
-      { duration: dur * 0.9, easing, fill: "both", composite: "replace" }
-    );
-    el._mgHeightAnim = heightAnim;
-    el._mgInnerAnim = innerAnim;
+    const heightAnim = el.animate([{ height: "0px" }, { height: targetH + "px" }],
+                                  { duration: dur, easing, fill: "both", composite: "replace" });
+    const innerAnim = inner.animate([{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "translateY(0)" }],
+                                    { duration: dur * 0.9, easing, fill: "both", composite: "replace" });
+    el._mgHeightAnim = heightAnim; el._mgInnerAnim = innerAnim;
 
     await Promise.allSettled([heightAnim.finished, innerAnim.finished]);
 
-    el.style.height = "";
-    el.style.contain = "";
-    el.style.overflow = "";
-    el.style.willChange = "";
-    inner.style.willChange = "";
-    inner.style.opacity = "";
-    inner.style.transform = "";
+    el.style.height = ""; el.style.contain = ""; el.style.overflow = ""; el.style.willChange = "";
+    inner.style.willChange = ""; inner.style.opacity = ""; inner.style.transform = "";
     el._mgHeightAnim = el._mgInnerAnim = null;
   };
 
@@ -731,27 +731,17 @@
     inner.style.transform = "translateY(0)";
 
     const easing = "cubic-bezier(.25,.9,.25,1)";
-    const heightAnim = el.animate(
-      [{ height: startH + "px" }, { height: "0px" }],
-      { duration: dur, easing, fill: "both", composite: "replace" }
-    );
-    const innerAnim = inner.animate(
-      [{ opacity: 1, transform: "translateY(0)" }, { opacity: 0, transform: "translateY(8px)" }],
-      { duration: dur * 0.9, easing, fill: "both", composite: "replace" }
-    );
-    el._mgHeightAnim = heightAnim;
-    el._mgInnerAnim = innerAnim;
+    const heightAnim = el.animate([{ height: startH + "px" }, { height: "0px" }],
+                                  { duration: dur, easing, fill: "both", composite: "replace" });
+    const innerAnim = inner.animate([{ opacity: 1, transform: "translateY(0)" }, { opacity: 0, transform: "translateY(8px)" }],
+                                    { duration: dur * 0.9, easing, fill: "both", composite: "replace" });
+    el._mgHeightAnim = heightAnim; el._mgInnerAnim = innerAnim;
 
     await Promise.allSettled([heightAnim.finished, innerAnim.finished]);
 
     el.hidden = true;
-    el.style.height = "";
-    el.style.contain = "";
-    el.style.overflow = "";
-    el.style.willChange = "";
-    inner.style.willChange = "";
-    inner.style.opacity = "";
-    inner.style.transform = "";
+    el.style.height = ""; el.style.contain = ""; el.style.overflow = ""; el.style.willChange = "";
+    inner.style.willChange = ""; inner.style.opacity = ""; inner.style.transform = "";
     el._mgHeightAnim = el._mgInnerAnim = null;
   };
 
@@ -762,7 +752,7 @@
 
     container.innerHTML = "";
 
-    // ----- Pause scanning (modern switch) -----
+    // ----- Pause scanning -----
     const rowPause = document.createElement("div");
     rowPause.className = "row";
     rowPause.innerHTML = `
@@ -791,7 +781,7 @@
       }
     };
 
-    // ----- Auto threshold (modern range + live bubble) -----
+    // ----- Auto threshold -----
     const rowTh = document.createElement("div");
     rowTh.className = "row";
     rowTh.innerHTML = `
@@ -825,7 +815,7 @@
       if (MG.state?.lastRiskJson) MG.updateAutoShow?.(MG.state.lastRiskJson);
     };
 
-    // ----- Theme (modern select) -----
+    // ----- Theme -----
     const rowTheme = document.createElement("div");
     rowTheme.className = "row";
     rowTheme.innerHTML = `
