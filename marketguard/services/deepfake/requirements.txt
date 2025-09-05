@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pillow
+numpy
+requests
+opencv-python-headless   # if you want video support
+easyocr                  # if you want OCR support

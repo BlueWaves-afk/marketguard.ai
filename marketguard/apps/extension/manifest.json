@@ -26,7 +26,15 @@
       "scripts/02-helpers.js",
       "scripts/03-highlight.js",
       "scripts/04-fab.js",
-      "scripts/05-overlay.js",
+
+      "scripts/05a-overlay-core.js",
+      "scripts/05b-explain-popup.js",
+      "scripts/05c-registry-verify+upi.js",
+      "scripts/05d-media-scan.js",
+      "scripts/05e-settings.js",
+      "scripts/05f-overlay-shell.js",
+      "scripts/05g-overlay-update.js",
+      
       "scripts/06-main.js"
     ],
     "css": ["content.css"],   

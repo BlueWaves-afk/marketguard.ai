@@ -1,29 +1,35 @@
+version: "3.9"
+
 services:
   registry:
     image: python:3.11-slim
+    container_name: registry_service
     working_dir: /app
     volumes:
       - ./services/registry:/app
       - ./data:/data
-    command: sh -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8001"
+    command: sh -c "pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8001"
     ports:
       - "8001:8001"
 
   nlp:
     image: python:3.11-slim
+    container_name: nlp_service
     working_dir: /app
     volumes:
       - ./services/nlp:/app
       - ./scripts:/scripts
-    command: sh -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8002"
+    command: sh -c "pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8002"
     ports:
       - "8002:8002"
 
-  check:
+  deepfake:
     image: python:3.11-slim
+    container_name: deepfake_service
     working_dir: /app
     volumes:
-      - ./services/check:/app
+      - ./services/deepfake:/app
+      - ./data:/data  # Optional, if you store models here
     command: sh -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8003"
     ports:
       - "8003:8003"
