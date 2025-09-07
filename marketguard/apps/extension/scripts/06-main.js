@@ -26,7 +26,7 @@
   function getPrefs() { return ensurePrefs(); }
 
   // ---------------- Limits (sane perf caps) ----------------
-  const HEARTBEAT_MS = 15000;
+  const HEARTBEAT_MS = 3000;
   const PER_EL_CHAR_LIMIT = 800;
   const TOTAL_CHAR_BUDGET = 12000;
   const MAX_ITEMS = 500;
