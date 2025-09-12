@@ -276,6 +276,7 @@ DEEPFAKE_HEURISTICS=on
 * **M4–M6:** Video heuristics v2, iOS/Android SDK, A/B with 1 broker + 1 video platform
 * **Year 2:** Commercial SDK; enterprise dashboards; extended regulator integrations
 
+* **Potential** If given enough user activity and engagement, idea is to transform into a subscription based AI agent, that can help businesses, optimize strategies, give detailed stock report, and expert financial advice; plus analyze videos to check for deepfakes, risky content, etc; such an ai agent is not available as of yet. Maybe morph into "MarketGPT"
 ---
 
 ## Security & Privacy
