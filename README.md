@@ -333,4 +333,3 @@ marketguard.ai provides **educational and verification assistance**. It does **n
 
 ---
 
-> Need a **starter `README.pptx` one-pager**, demo data, or a **Docker compose** tailored to your cloud? I can add those sections inline to this README in your preferred style.
