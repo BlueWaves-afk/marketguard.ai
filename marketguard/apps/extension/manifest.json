@@ -21,21 +21,18 @@
   {
     "matches": ["<all_urls>"],
     "js": [
-      "scripts/00-constants.js",
-      "scripts/01-storage.js",
-      "scripts/02-helpers.js",
-      "scripts/03-highlight.js",
-      "scripts/04-fab.js",
-
-      "scripts/05a-overlay-core.js",
-      "scripts/05b-explain-popup.js",
-      "scripts/05c-registry-verify+upi.js",
-      "scripts/05d-media-scan.js",
-      "scripts/05e-settings.js",
-      "scripts/05f-overlay-shell.js",
-      "scripts/05g-overlay-update.js",
-      
-      "scripts/06-main.js"
+      "scripts/new/constants.js",
+      "scripts/legacy/01-storage.js",
+      "scripts/legacy/02-helpers.js",
+      "scripts/legacy/03-highlight.js",
+      "scripts/new/services.js",
+      "scripts/new/settings.js",
+      "scripts/new/registry.js",
+      "scripts/new/media.js",
+      "scripts/new/fab.js",
+      "scripts/new/overlay-shell.js",
+      "scripts/new/overlay.js",
+      "scripts/new/main.js"
     ],
     "css": ["content.css"],   
     "run_at": "document_idle"

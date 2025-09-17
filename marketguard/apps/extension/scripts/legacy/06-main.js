@@ -39,7 +39,7 @@
   MG.state.mgAnchorPrefix = "mg-anchor-";
 
   // ---------------- Auto-show logic ----------------
-  MG.updateAutoShow = function updateAutoShow(json) {
+  MG.updateAutoShow = function updateAutoShow(json, options = {}) {
     try {
       const prefs = getPrefs();
       const overlayClosed = !!MG.state.overlayClosed;
@@ -50,10 +50,22 @@
       const defaultMode = String(prefs?.defaultMode ?? FALLBACK_DEFAULTS.defaultMode);
 
       const allow = score >= threshold || forceShowOverlay || (defaultMode === "expanded" && !overlayClosed);
+      
+      console.log('updateAutoShow:', { 
+        score, threshold, allow, overlayClosed, forceShowOverlay, 
+        fromFabClick: options.fromFabClick 
+      });
 
-      if (allow && !overlayClosed) MG.updateOverlay?.(json || { risk: "—", score: 0 });
-      else MG.removeOverlayIfAny?.();
-    } catch { MG.removeOverlayIfAny?.(); }
+      if (allow && !overlayClosed) {
+        // Pass through fromFabClick context for genie animation
+        MG.updateOverlay?.(json || { risk: "—", score: 0 }, options);
+      } else {
+        MG.removeOverlayIfAny?.();
+      }
+    } catch (e) { 
+      console.error('Error in updateAutoShow:', e);
+      MG.removeOverlayIfAny?.(); 
+    }
   };
 
   // ---------------- Helpers ----------------
@@ -187,7 +199,9 @@
       MG.setFabScore?.(NaN, "PAUSED");
       if (MG.state?.forceShowOverlay) {
         const j = MG.state.lastRiskJson || { risk: "—", score: 0, lang: "EN" };
-        MG.updateOverlay?.(j);
+        const options = MG.state.forceShowOverlay ? { fromFabClick: true } : {};
+        MG.updateOverlay?.(j, options);
+        MG.state.forceShowOverlay = false; // Reset after showing
       }
       return;
     }
@@ -269,7 +283,15 @@
         const tip = MG.qs?.(".marketguard-tooltip");
         if (tip) MG.drawSparklineInto?.(MG.qs("#mg-sparkline", tip));
 
-        MG.updateAutoShow(MG.state.lastRiskJson);
+        // Check if this scan was triggered by FAB click
+        const options = MG.state.forceShowOverlay ? { fromFabClick: true } : {};
+        MG.updateAutoShow(MG.state.lastRiskJson, options);
+        
+        // Reset forceShowOverlay after processing to avoid interfering with future automatic scans
+        if (MG.state.forceShowOverlay) {
+          MG.state.forceShowOverlay = false;
+          console.log('Reset forceShowOverlay after displaying overlay');
+        }
         // Let overlay refresh its summary if mounted
         MG.updateRiskSummary?.();
       }
@@ -305,7 +327,8 @@
 
     if ((MG.state.prefs.defaultMode || "compact") === "expanded") {
       MG.state.overlayClosed = false;
-      MG.updateOverlay?.({ risk: "—", score: 0, lang: "EN" });
+      // Don't use genie animation for automatic expanded mode opening
+      MG.updateOverlay?.({ risk: "—", score: 0, lang: "EN" }, { fromFabClick: false });
     }
 
     await MG.ensureFab?.();
@@ -318,8 +341,12 @@
         if (msg?.type === "MARKETGUARD_FORCE_SHOW") {
           MG.state.forceShowOverlay = true;
           MG.state.overlayClosed = false;
-          if (MG.state.lastRiskJson) MG.updateOverlay?.(MG.state.lastRiskJson);
-          else MG.runScan();
+          if (MG.state.lastRiskJson) {
+            MG.updateOverlay?.(MG.state.lastRiskJson, { fromFabClick: true });
+            MG.state.forceShowOverlay = false; // Reset after showing
+          } else {
+            MG.runScan(); // This will reset forceShowOverlay in the scan completion
+          }
         }
       });
     } catch {}
@@ -330,7 +357,7 @@
           MG.state.prefs = { ...getDefaults(), ...(changes[PREFS].newValue || {}) };
           const tip = MG.qs?.(".marketguard-tooltip");
           if (tip) MG.applyPrefsToOverlay?.(tip);
-          if (MG.state.lastRiskJson) MG.updateAutoShow(MG.state.lastRiskJson);
+          if (MG.state.lastRiskJson) MG.updateAutoShow(MG.state.lastRiskJson, {});
           MG.updateRiskSummary?.();
         }
       });

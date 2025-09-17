@@ -132,15 +132,15 @@
 
       if (paused) {
         if (st.lastRiskJson) {
-          MG.updateOverlay?.(st.lastRiskJson);
+          MG.updateOverlay?.(st.lastRiskJson, { fromFabClick: true });
         } else {
-          (MG.updateOverlay?.({ risk: "—", score: 0, lang: "EN" }) || MG.mountOverlayShell?.());
+          (MG.updateOverlay?.({ risk: "—", score: 0, lang: "EN" }, { fromFabClick: true }) || MG.mountOverlayShell?.({ fromFabClick: true }));
         }
         return;
       }
 
       if (st.lastRiskJson) {
-        MG.updateOverlay?.(st.lastRiskJson);
+        MG.updateOverlay?.(st.lastRiskJson, { fromFabClick: true });
       } else {
         MG.runScan?.();
       }

@@ -24,54 +24,60 @@ mark.marketguard.mg-hl-focus {
   border-radius: 4px;
 }
 
-/* Base FAB */
+/* Base FAB - iOS Style */
 .marketguard-fab {
   position:fixed; bottom:24px; right:24px; z-index:2147483646;
-  width:46px; height:46px; border-radius:12px; display:grid; place-items:center;
-  font: 12px/1 Inter, system-ui; color:#eaf2ff;
-  background: radial-gradient(120% 120% at 90% -10%, rgba(55,148,255,.2) 0%, rgba(255,255,255,.08) 45%, rgba(0,0,0,.45) 100%), rgba(14,20,34,.85);
-  backdrop-filter:saturate(140%) blur(8px);
-  box-shadow: 0 10px 24px rgba(0,0,0,.26), inset 0 0 0 1px rgba(255,255,255,.06);
+  width:54px; height:54px; border-radius:18px; display:grid; place-items:center;
+  font: 13px/1 -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui; color:#ffffff;
+  background: rgba(28,28,30,.95);
+  -webkit-backdrop-filter: blur(40px) saturate(1.2);
+  backdrop-filter: blur(40px) saturate(1.2);
+  box-shadow: 0 24px 60px rgba(0,0,0,.3), 0 1px 0 rgba(255,255,255,.1) inset;
+  border: 0.5px solid rgba(255,255,255,.15);
   cursor:grab; user-select:none;
-  transition: transform .06s ease, box-shadow .2s ease, background .2s ease;
+  transition: transform .15s ease, box-shadow .2s ease, background .15s ease;
+  font-weight:500;
 }
 /* Tiny badge inside the FAB */
 .marketguard-fab .mg-badge {
   display: inline-block;
   align-self: flex-start;
-  margin-top: 2px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  font-size: 10px;
+  margin-top: 3px;
+  padding: 3px 7px;
+  border-radius: 10px;
+  font-size: 11px;
   line-height: 1;
-  border: 1px solid rgba(255,255,255,.22);
-  background: rgba(255,255,255,.10);
-  color: #eaf2ff;
+  border: 0.5px solid rgba(255,255,255,.2);
+  background: rgba(120,120,128,.16);
+  color: rgba(255,255,255,.9);
+  font-weight: 500;
+  backdrop-filter: blur(10px);
 }
 .marketguard-fab .mg-badge[hidden] { display: none !important; }
 
 /* Specific styling for "Paused" badge */
 .marketguard-fab .mg-badge--paused {
-  color: #ffb7b7;
-  background: rgba(255,107,107,.12);
-  border-color: rgba(255,107,107,.38);
+  color: #ffffff;
+  background: rgba(255,69,58,.8);
+  border-color: rgba(255,69,58,.6);
 }
 
 /* Optional: a subtle paused border treatment on the FAB */
-.marketguard-fab.mg-fab-paused { border: 1px dashed rgba(255,107,107,.45); }
+.marketguard-fab.mg-fab-paused { border: 0.5px solid rgba(255,69,58,.4); }
 
-.marketguard-fab:active { cursor:grabbing; transform: translateY(1px); }
-.mg-fab-low  { border: 1px solid rgba(18,255,176,.35) }
-.mg-fab-med  { border: 1px solid rgba(255,221,80,.35) }
-.mg-fab-high { border: 1px solid rgba(255,107,107,.45) }
+.marketguard-fab:active { cursor:grabbing; transform: scale(0.95); }
+.marketguard-fab:hover { transform: scale(1.05); }
+.mg-fab-low  { border-color: rgba(52,199,89,.4); box-shadow: 0 24px 60px rgba(0,0,0,.3), 0 0 20px rgba(52,199,89,.2), 0 1px 0 rgba(255,255,255,.1) inset; }
+.mg-fab-med  { border-color: rgba(255,159,10,.4); box-shadow: 0 24px 60px rgba(0,0,0,.3), 0 0 20px rgba(255,159,10,.2), 0 1px 0 rgba(255,255,255,.1) inset; }
+.mg-fab-high { border-color: rgba(255,69,58,.5); box-shadow: 0 24px 60px rgba(0,0,0,.3), 0 0 20px rgba(255,69,58,.25), 0 1px 0 rgba(255,255,255,.1) inset; }
 
 /* FAB as a rounded pill with logo + text */
 .marketguard-fab.mg-fab-with-logo {
   width: auto;
-  min-width: 120px;
-  height: 46px;
-  padding: 6px 10px;
-  border-radius: 12px;
+  min-width: 130px;
+  height: 54px;
+  padding: 8px 14px;
+  border-radius: 18px;
 }
 
 .marketguard-fab .mg-fab-inner {
@@ -82,15 +88,15 @@ mark.marketguard.mg-hl-focus {
 
 /* --- LOGO: perfect circle, never squishes, clean scaling --- */
 .marketguard-fab .mg-logo {
-  flex: 0 0 28px;          /* lock box so it never compresses */
-  width: 28px;
-  height: 28px;
+  flex: 0 0 32px;          /* lock box so it never compresses */
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   overflow: hidden;         /* hard clip to circle */
   display: grid;
   place-items: center;
-  background: rgba(255,255,255,.08);
-  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(120,120,128,.12);
+  border: 0.5px solid rgba(255,255,255,.15);
 }
 .marketguard-fab .mg-logo img {
   display: block;
@@ -105,36 +111,134 @@ mark.marketguard.mg-hl-focus {
 .marketguard-fab .mg-logo .mg-logo-fallback { display: none !important; }
 
 .marketguard-fab .mg-text { display: flex; flex-direction: column; line-height: 1.1; }
-.marketguard-fab .mg-perc { font-weight: 800; font-size: 13px; transition: font-size 0.1s ease; }
+.marketguard-fab .mg-perc { font-weight: 700; font-size: 14px; transition: font-size 0.1s ease; letter-spacing: -0.2px; }
 /* Auto-shrink % when too wide (>= 3 digits) */
-.marketguard-fab .mg-perc.long-text { font-size: 11px; }
-.marketguard-fab .mg-label { opacity: .85; font-size: 10px; }
+.marketguard-fab .mg-perc.long-text { font-size: 12px; }
+.marketguard-fab .mg-label { opacity: .8; font-size: 11px; font-weight: 500; }
 
-/* Tooltip / Overlay */
+/* Tooltip / Overlay - iOS Style */
 .marketguard-tooltip {
   position:fixed; bottom:24px; right:78px; z-index:2147483647;
-  width:min(620px, 44vw); min-width:380px; display:flex; flex-direction:column; gap:14px;
-  border-radius:20px;
-  background: radial-gradient(120% 120% at 90% -10%, rgba(55,148,255,.18) 0%, rgba(255,255,255,.05) 45%, rgba(0,0,0,.35) 100%), rgba(14,20,34,.84);
-  backdrop-filter:saturate(140%) blur(8px);
-  box-shadow: 0 18px 44px rgba(0,0,0,.30), inset 0 0 0 1px rgba(255,255,255,.06);
-  color:#eaf2ff; padding:16px 18px; font: 14px/1.45 Inter, system-ui;
-  user-select:none; opacity:0; transform: translateY(8px) scale(.98);
-  transition: opacity .18s ease, transform .2s ease, box-shadow .2s ease, background .2s ease;
+  width:min(560px, 42vw); min-width:360px; display:flex; flex-direction:column; gap:16px;
+  border-radius:24px;
+  background: rgba(28,28,30,.95);
+  -webkit-backdrop-filter: blur(40px) saturate(1.2);
+  backdrop-filter: blur(40px) saturate(1.2);
+  box-shadow: 0 24px 60px rgba(0,0,0,.3), 0 1px 0 rgba(255,255,255,.1) inset;
+  border: 0.5px solid rgba(255,255,255,.15);
+  color:#ffffff; padding:20px 22px; font: 15px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui;
+  user-select:none; opacity:0; transform: translateY(12px) scale(.96);
+  transition: opacity .2s ease, transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .2s ease;
   pointer-events:auto;
+  font-weight:400;
 }
+/* Genie Animation Keyframes */
+@keyframes mg-genie-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.1) translate(var(--mg-genie-start-x, 0), var(--mg-genie-start-y, 0));
+    transform-origin: bottom right;
+    clip-path: circle(10% at bottom right);
+  }
+  20% {
+    opacity: 0.3;
+    transform: scale(0.3) translate(calc(var(--mg-genie-start-x, 0) * 0.7), calc(var(--mg-genie-start-y, 0) * 0.7));
+    clip-path: circle(25% at bottom right);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(0.6) translate(calc(var(--mg-genie-start-x, 0) * 0.4), calc(var(--mg-genie-start-y, 0) * 0.4));
+    clip-path: circle(50% at center);
+  }
+  80% {
+    opacity: 0.95;
+    transform: scale(0.95) translate(calc(var(--mg-genie-start-x, 0) * 0.1), calc(var(--mg-genie-start-y, 0) * 0.1));
+    clip-path: circle(85% at center);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translate(0, 0);
+    clip-path: circle(100% at center);
+  }
+}
+
+@keyframes mg-genie-out {
+  0% {
+    opacity: 1;
+    transform: scale(1) translate(0, 0);
+    clip-path: circle(100% at center);
+  }
+  20% {
+    opacity: 0.95;
+    transform: scale(0.9) translate(calc(var(--mg-genie-start-x, 0) * 0.1), calc(var(--mg-genie-start-y, 0) * 0.1));
+    clip-path: circle(80% at center);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.5) translate(calc(var(--mg-genie-start-x, 0) * 0.5), calc(var(--mg-genie-start-y, 0) * 0.5));
+    clip-path: circle(40% at bottom right);
+  }
+  80% {
+    opacity: 0.2;
+    transform: scale(0.2) translate(calc(var(--mg-genie-start-x, 0) * 0.8), calc(var(--mg-genie-start-y, 0) * 0.8));
+    clip-path: circle(15% at bottom right);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.05) translate(var(--mg-genie-start-x, 0), var(--mg-genie-start-y, 0));
+    clip-path: circle(5% at bottom right);
+  }
+}
+
+/* Animation classes */
+.marketguard-tooltip.mg-genie-in {
+  animation: mg-genie-in 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.marketguard-tooltip.mg-genie-out {
+  animation: mg-genie-out 0.4s cubic-bezier(0.55, 0.055, 0.675, 0.19) forwards;
+}
+
+/* Fallback for browsers without clip-path support */
+@supports not (clip-path: circle()) {
+  @keyframes mg-genie-in {
+    0% {
+      opacity: 0;
+      transform: scale(0.1) translate(var(--mg-genie-start-x, 0), var(--mg-genie-start-y, 0));
+      transform-origin: bottom right;
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1) translate(0, 0);
+    }
+  }
+  
+  @keyframes mg-genie-out {
+    0% {
+      opacity: 1;
+      transform: scale(1) translate(0, 0);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(0.1) translate(var(--mg-genie-start-x, 0), var(--mg-genie-start-y, 0));
+    }
+  }
+}
+
 .marketguard-tooltip.marketguard-in { opacity:1; transform: translateY(0) scale(1) }
-.marketguard-tooltip.marketguard-out { opacity:0 !important; transform: translateY(8px) scale(.98) !important }
+.marketguard-tooltip.marketguard-out { opacity:0 !important; transform: translateY(12px) scale(.96) !important }
 @keyframes mgPulse {
-  0% { box-shadow: 0 18px 44px rgba(255,64,64,.22), inset 0 0 0 1px rgba(255,255,255,.06) }
-  50%{ box-shadow: 0 22px 60px rgba(255,64,64,.42), 0 0 24px rgba(255,64,64,.35), inset 0 0 0 1px rgba(255,255,255,.06) }
-  100%{ box-shadow: 0 18px 44px rgba(255,64,64,.22), inset 0 0 0 1px rgba(255,255,255,.06) }
+  0% { box-shadow: 0 24px 60px rgba(255,64,64,.2), 0 1px 0 rgba(255,255,255,.1) inset }
+  50%{ box-shadow: 0 28px 80px rgba(255,64,64,.35), 0 0 30px rgba(255,64,64,.25), 0 1px 0 rgba(255,255,255,.1) inset }
+  100%{ box-shadow: 0 24px 60px rgba(255,64,64,.2), 0 1px 0 rgba(255,255,255,.1) inset }
 }
-.marketguard-tooltip.marketguard-pulse { animation: mgPulse 1.8s ease-in-out infinite; }
+.marketguard-tooltip.marketguard-pulse { animation: mgPulse 2s ease-in-out infinite; }
 
 .marketguard-tooltip.mg-theme-light {
-  background: radial-gradient(120% 120% at 90% -10%, rgba(55,148,255,.10) 0%, rgba(255,255,255,.50) 45%, rgba(255,255,255,.92) 100%), rgba(255,255,255,.96);
-  color:#0b1220; box-shadow: 0 18px 44px rgba(0,0,0,.18), inset 0 0 0 1px rgba(0,0,0,.06);
+  background: rgba(255,255,255,.95);
+  color:#000000; 
+  box-shadow: 0 24px 60px rgba(0,0,0,.15), 0 1px 0 rgba(255,255,255,.6) inset;
+  border-color: rgba(0,0,0,.1);
 }
 
 /* Overlay header */
@@ -173,52 +277,57 @@ mark.marketguard.mg-hl-focus {
   padding:0;
 }
 
-.ss-title{ font-weight:800; font-size:18px; letter-spacing:.2px; margin:0; flex:1 1 auto; }
+.ss-title{ font-weight:700; font-size:20px; letter-spacing:-0.2px; margin:0; flex:1 1 auto; }
 .ss-close, .ss-gear{
-  flex:0 0 auto; width:28px; height:28px; border-radius:8px; display:grid; place-items:center;
-  background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); color:inherit; font-weight:700; cursor:pointer;
-  transition: background .12s ease, border-color .12s ease, transform .06s ease;
+  flex:0 0 auto; width:32px; height:32px; border-radius:16px; display:grid; place-items:center;
+  background: rgba(120,120,128,.16); border:none; color:rgba(255,255,255,.9); font-weight:600; cursor:pointer;
+  transition: all .15s ease; font-size:16px;
 }
-.mg-theme-light .ss-close, .mg-theme-light .ss-gear{ background: rgba(0,0,0,.05); border:1px solid rgba(0,0,0,.10); }
-.ss-close:hover, .ss-gear:hover{ background: rgba(255,255,255,.12); }
-.mg-theme-light .ss-close:hover, .mg-theme-light .ss-gear:hover{ background: rgba(0,0,0,.08); }
-.ss-close:active, .ss-gear:active{ transform: translateY(1px); }
+.mg-theme-light .ss-close, .mg-theme-light .ss-gear{ background: rgba(120,120,128,.12); color:rgba(0,0,0,.8); }
+.ss-close:hover, .ss-gear:hover{ background: rgba(120,120,128,.24); transform: scale(1.05); }
+.mg-theme-light .ss-close:hover, .mg-theme-light .ss-gear:hover{ background: rgba(120,120,128,.18); }
+.ss-close:active, .ss-gear:active{ transform: scale(0.95); }
 
 /* Overlay body */
 .ss-body{ display:flex; flex-direction:column; gap:8px; }
 .ss-risk{
-  font-size:17px; font-weight:800; margin:0;
-  background: linear-gradient(90deg, #12ffb0, #79ffa0 60%, #a7ff6f);
+  font-size:19px; font-weight:700; margin:0; letter-spacing:-0.3px;
+  background: linear-gradient(90deg, #30d158, #64d2ff 60%, #5ac8fa);
   -webkit-background-clip:text; background-clip:text; color:transparent;
 }
-.mg-theme-light .ss-risk{ background: linear-gradient(90deg, #00875a, #3fbf6d 60%, #78d64f); -webkit-background-clip:text; background-clip:text; color:transparent; }
-.ss-sub{ margin:0; opacity:.85; font-size:13px; line-height:1.45; }
+.mg-theme-light .ss-risk{ background: linear-gradient(90deg, #30d158, #007aff 60%, #5ac8fa); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.ss-sub{ margin:0; opacity:.7; font-size:14px; line-height:1.4; font-weight:400; }
 
 .ss-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-.ss-chip { font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.18); opacity:.9; }
-.mg-theme-light .ss-chip{ border-color: rgba(0,0,0,.14); }
+.ss-chip { font-size:12px; padding:6px 10px; border-radius:12px; border:none; background:rgba(120,120,128,.12); opacity:.9; color:rgba(255,255,255,.8); font-weight:500; }
+.mg-theme-light .ss-chip{ background:rgba(120,120,128,.1); color:rgba(0,0,0,.7); }
 
 .ss-divider{ height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,.09),transparent); }
 .mg-theme-light .ss-divider{ background:linear-gradient(90deg,transparent,rgba(0,0,0,.12),transparent); }
 .ss-actions{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
 .ss-left-actions { display:flex; align-items:center; gap:8px; }
-.ss-nav-btn{ appearance:none; border:1px dashed rgba(255,255,255,.25); background:transparent; color:inherit; padding:6px 10px; border-radius:10px; cursor:pointer; font-weight:600; }
-.mg-theme-light .ss-nav-btn{ border-color: rgba(0,0,0,.18); }
+.ss-nav-btn{ appearance:none; border:none; background:rgba(120,120,128,.12); color:rgba(255,255,255,.8); padding:8px 12px; border-radius:12px; cursor:pointer; font-weight:500; font-size:14px; transition: all .15s ease; }
+.ss-nav-btn:hover{ background:rgba(120,120,128,.2); transform: scale(1.02); }
+.ss-nav-btn:active{ transform: scale(0.98); }
+.mg-theme-light .ss-nav-btn{ background:rgba(120,120,128,.1); color:rgba(0,0,0,.7); }
+.mg-theme-light .ss-nav-btn:hover{ background:rgba(120,120,128,.15); }
 
 .ss-btn{
-  appearance:none; border:1px solid rgba(255,255,255,.14);
-  background: rgba(255,255,255,.07); color:inherit; padding:10px 14px;
-  border-radius:12px; font-weight:700; cursor:pointer; white-space:nowrap; font-size:14px;
-  transition: transform .06s ease, background .12s ease, border-color .12s ease;
+  appearance:none; border:none;
+  background: rgba(120,120,128,.16); color:rgba(255,255,255,.9); padding:12px 16px;
+  border-radius:16px; font-weight:600; cursor:pointer; white-space:nowrap; font-size:15px;
+  transition: all .15s ease;
 }
-.ss-btn:hover{ background: rgba(255,255,255,.12); border-color:rgba(255,255,255,.22); }
-.ss-btn:active{ transform: translateY(1px); }
-.ss-btn--danger{ color:#ff7979; background: rgba(255,107,107,.12); border-color:rgba(255,107,107,.38); }
-.mg-theme-light .ss-btn{ background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.14); }
-.mg-theme-light .ss-btn:hover{ background: rgba(0,0,0,.10); border-color: rgba(0,0,0,.20); }
+.ss-btn:hover{ background: rgba(120,120,128,.24); transform: scale(1.02); }
+.ss-btn:active{ transform: scale(0.98); }
+.ss-btn--danger{ color:#ffffff; background: rgba(255,69,58,.8); }
+.ss-btn--danger:hover{ background: rgba(255,69,58,.9); }
+.mg-theme-light .ss-btn{ background: rgba(120,120,128,.12); color:rgba(0,0,0,.8); }
+.mg-theme-light .ss-btn:hover{ background: rgba(120,120,128,.18); }
+.mg-theme-light .ss-btn--danger{ background: rgba(255,69,58,.8); color:#ffffff; }
 
-.mg-card{ border:1px solid rgba(255,255,255,.14); border-radius:12px; padding:10px 12px; background: rgba(255,255,255,.04); }
-.mg-theme-light .mg-card{ background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.12); }
+.mg-card{ border:0.5px solid rgba(255,255,255,.1); border-radius:16px; padding:16px 18px; background: rgba(28,28,30,.6); }
+.mg-theme-light .mg-card{ background: rgba(255,255,255,.8); border-color: rgba(0,0,0,.08); }
 
 /* Settings panel — visible by default; hidden only with [hidden] */
 .mg-settings {

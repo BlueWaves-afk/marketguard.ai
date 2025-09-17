@@ -4,9 +4,9 @@
 (() => {
   const MG = (window.MG = window.MG || {});
 
-  MG.updateOverlay = (json) => {
+  MG.updateOverlay = (json, options = {}) => {
     let tip = MG.qs(".marketguard-tooltip");
-    if (!tip) tip = MG.mountOverlayShell();
+    if (!tip) tip = MG.mountOverlayShell(options);
 
     const prefs = MG.getPrefs?.() || (function () { if (!MG.state) MG.state = {}; return MG.state.prefs || {}; })();
     const paused = !!prefs.pauseScanning;
@@ -25,8 +25,20 @@
   MG.removeOverlayIfAny = () => {
     const tip = MG.qs(".marketguard-tooltip");
     if (tip) {
-      tip.classList.add("marketguard-out");
-      setTimeout(() => tip.remove(), 220);
+      // Use genie animation if available, otherwise fallback to regular
+      if (MG.applyGenieAnimation && typeof MG.applyGenieAnimation === 'function') {
+        MG.applyGenieAnimation(tip, true);
+        setTimeout(() => {
+          try {
+            tip.remove();
+          } catch (e) {
+            console.warn('Error removing overlay:', e);
+          }
+        }, 450); // Wait for genie animation (400ms + buffer)
+      } else {
+        tip.classList.add("marketguard-out");
+        setTimeout(() => tip.remove(), 220);
+      }
     }
   };
 })();
