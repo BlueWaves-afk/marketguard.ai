@@ -20,6 +20,19 @@
       return Array.isArray(j?.results) ? j.results : [];
     },
 
+    async generativeExplanation(payload) {
+      const url = MG?.API?.NLP_GENERATIVE_EXPLANATION;
+      if (!url) throw new Error("Explanation API not configured");
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {})
+      });
+      const j = await jsonOrEmpty(r);
+      if (!r.ok) throw new Error(j?.detail || "explain_error");
+      return j;
+    },
+
     async registryVerify(params) {
       const base = MG?.API?.SEBI_REGISTRY;
       if (!base) throw new Error("Registry API not configured");
@@ -45,5 +58,6 @@
     }
   };
 })();
+
 
 

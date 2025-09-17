@@ -76,7 +76,7 @@
         const remaining = Math.max(0, TOTAL_CHAR_BUDGET - totalChars);
         if (remaining <= 0) break; chunk = chunk.slice(0, remaining);
       }
-      items.push({ id: idCounter++, text: chunk, metadata: { type: el.tagName.toLowerCase(), locator: getLocator(el), url: location.href } });
+      items.push({ id: idCounter++, text: chunk, metadata: { type: el.tagName.toLowerCase(), locator: getLocator(el), url: location.href }, __el: el });
       totalChars += chunk.length; if (items.length >= MAX_ITEMS || totalChars >= TOTAL_CHAR_BUDGET) break;
     }
     const pageText = (document.body?.innerText || '').trim().slice(0, Math.max(2000, PER_EL_CHAR_LIMIT));
@@ -95,6 +95,8 @@
       const results = await MG.services.nlpBatch(items);
       const byId = new Map(results.map(r => [r.id, r]));
       const threshold = Number(MG.state.prefs?.threshold ?? 0.6);
+      MG.clearRiskMemory?.();
+      MG.buildRiskMemory?.(byId, items, threshold);
       let best = { score: 0, risk: '', id: null, json: null };
       for (const it of items) {
         const res = byId.get(it.id); if (!res) continue;
@@ -135,5 +137,6 @@
     document.addEventListener('visibilitychange', () => { if (!document.hidden) MG.runScan(); });
   })();
 })();
+
 
 

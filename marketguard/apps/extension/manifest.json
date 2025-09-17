@@ -28,6 +28,8 @@
       "scripts/new/services.js",
       "scripts/new/settings.js",
       "scripts/new/registry.js",
+      "scripts/new/risk-memory.js",
+      "scripts/new/explain.js",
       "scripts/new/media.js",
       "scripts/new/fab.js",
       "scripts/new/overlay-shell.js",
