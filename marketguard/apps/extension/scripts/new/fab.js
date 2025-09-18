@@ -18,6 +18,48 @@
     return resolveAsset(isHigh ? "assets/logo-high-risk.png" : "assets/logo.png");
   }
 
+  // ---- Check backend health ----
+  MG.checkBackendHealth = async function checkBackendHealth() {
+    try {
+      const resp = await fetch("http://127.0.0.1:8003/healthz", { method: "GET", cache: "no-store" });
+      if (!resp.ok) throw new Error("not ok");
+      const txt = await resp.text();
+      return txt.includes("ok") || txt.includes("healthy");
+    } catch {
+      return false;
+    }
+  };
+
+  // ---- Show dark themed popup ----
+  MG.showMissingPopup = function showMissingPopup() {
+    if (document.querySelector(".mg-missing-popup")) return;
+
+    const div = document.createElement("div");
+    div.className = "mg-missing-popup";
+    div.innerHTML = `
+      <div class="mg-popup-header">Missing Companion App</div>
+      <div class="mg-popup-body">
+        Please <a href="https://your-download-link" target="_blank">download & install</a> the backend app.
+      </div>
+      <div class="mg-popup-actions">
+        <button class="mg-close-btn">Close</button>
+      </div>
+    `;
+    document.body.appendChild(div);
+
+    // Animate in
+    requestAnimationFrame(() => {
+      div.style.opacity = "1";
+      div.style.transform = "translateY(0)";
+    });
+
+    div.querySelector(".mg-close-btn").addEventListener("click", () => {
+      div.style.opacity = "0";
+      div.style.transform = "translateY(20px)";
+      setTimeout(() => div.remove(), 300);
+    });
+  };
+
   MG.ensureFab = async function ensureFab() {
     if (!document?.body) return;
     let fab = document.querySelector('.marketguard-fab');
@@ -41,6 +83,7 @@
           <div class="mg-perc">--%</div>
           <div class="mg-label">MarketGuard</div>
           <div class="mg-badge mg-badge--paused" ${paused ? '' : 'hidden'}>Paused</div>
+          <div class="mg-badge mg-badge--missing" hidden>Missing Companion App</div>
         </div>
       </div>
     `;
@@ -61,8 +104,17 @@
     fab.addEventListener('pointerup', () => { pointerDownAt = null; });
     try { MG.makeDraggable?.(fab, fab, MG.KEYS.POS_FAB); } catch {}
 
-    fab.addEventListener('click', (e) => {
+    fab.addEventListener('click', async (e) => {
       if (dragMoved) { e.preventDefault(); e.stopPropagation(); return; }
+      const ok = await MG.checkBackendHealth();
+      const missingBadge = fab.querySelector(".mg-badge--missing");
+      if (!ok) {
+        MG.showMissingPopup();
+        MG.setFabScore(NaN, "PAUSED");
+        if (missingBadge) missingBadge.hidden = false;
+        return;
+      }
+      if (missingBadge) missingBadge.hidden = true;
       const st = ensureState();
       st.forceShowOverlay = true;
       st.overlayClosed = false;
@@ -95,7 +147,88 @@
     const img = fab.querySelector('.mg-logo img');
     if (img) img.src = computeLogoSrc({ score, riskText, pausedExplicit: paused });
   };
+
+  // ---- inject CSS for missing badge + dark popup ----
+  const style = document.createElement("style");
+  style.textContent = `
+    .mg-badge--missing {
+      background: linear-gradient(90deg, #00ff9d, #009dff, #ff4dff);
+      color: #fff;
+      font-weight: bold;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-top: 2px;
+      display: inline-block;
+    }
+
+    .mg-missing-popup {
+      position: fixed;
+      bottom: 80px;
+      right: 20px;
+      min-width: 280px;
+      max-width: 320px;
+      background: rgba(20, 20, 20, 0.95);
+      backdrop-filter: blur(12px) saturate(180%);
+      -webkit-backdrop-filter: blur(12px) saturate(180%);
+      border-radius: 18px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.6);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #eee;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      z-index: 999999;
+    }
+
+    .mg-missing-popup .mg-popup-header {
+      font-weight: 600;
+      font-size: 15px;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      background: linear-gradient(90deg, #00ff9d, #009dff, #ff4dff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .mg-missing-popup .mg-popup-body {
+      padding: 12px 16px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .mg-missing-popup .mg-popup-body a {
+      color: #4da6ff;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .mg-missing-popup .mg-popup-body a:hover {
+      text-decoration: underline;
+    }
+
+    .mg-missing-popup .mg-popup-actions {
+      padding: 12px 16px;
+      text-align: right;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .mg-missing-popup .mg-close-btn {
+      background: #333;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .mg-missing-popup .mg-close-btn:hover {
+      background: #555;
+    }
+  `;
+  document.head.appendChild(style);
 })();
-
-
-
