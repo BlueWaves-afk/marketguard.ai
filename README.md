@@ -140,6 +140,7 @@ marketguard/
 * (Optional) Docker Desktop for local services
 
 ### Quick Start (dev)
+<img width="337" height="215" alt="image" src="https://github.com/user-attachments/assets/d0ba62b6-dff1-447b-a504-9d168ec5774a" />
 
 ```bash
 # 1) clone
