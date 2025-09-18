@@ -241,6 +241,7 @@ DEEPFAKE_HEURISTICS=on
 ---
 
 ## Risk Scoring & Features
+<img width="496" height="532" alt="image" src="https://github.com/user-attachments/assets/81999f34-1fe1-47ee-838b-998f56a9e9fd" />
 
 **NLP features (examples)**
 
