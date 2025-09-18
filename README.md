@@ -2,6 +2,7 @@
 
 > **Verify. Detect. Educate — right where investors decide.**
 > AI-powered browser extension & mobile SDK for real-time advisor verification, scam-language detection, and deepfake warnings — aligned with SEBI’s 2025 investor-protection push.
+<img width="1134" height="297" alt="image" src="https://github.com/user-attachments/assets/37a1a259-a16c-43e1-bcf5-d319de78c514" />
 
 ---
 
