@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "marketguard.ai",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "Verify advisors, flag scam-language, and check UPI handles—right on the page.",
   "action": { "default_title": "marketguard.ai" },
   "background": { "service_worker": "background.js" },

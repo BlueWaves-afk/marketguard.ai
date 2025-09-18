@@ -494,27 +494,77 @@
 
       async function startScan() {
         const mediaEls = MG.enumerateMedia?.() || [];
-        if (!mediaEls.length) { btnOpen.hidden = false; alert("No media found in view."); return; }
-        mediaItems = []; btnScan.disabled = true; btnScan.textContent = "Scanning…";
-        tip.classList.add("mg-scan-active"); progWrap.hidden = false; setProgress(0, mediaEls.length);
-
+        if (!mediaEls.length) {
+          btnOpen.hidden = false;
+          alert("No media found in view.");
+          return;
+        }
+      
+        mediaItems = [];
+        btnScan.disabled = true;
+        btnScan.textContent = "Scanning…";
+        tip.classList.add("mg-scan-active");
+        progWrap.hidden = false;
+        setProgress(0, mediaEls.length);
+      
         const counts = { HIGH: 0, MEDIUM: 0, LOW: 0, SAFE: 0, UNKNOWN: 0 };
         let shotCache = null;
-
+      
         for (let i = 0; i < mediaEls.length; i++) {
           const el = mediaEls[i];
+      
+          // --- Step 1: Capture pixels ---
           let dataUrl = await MG.captureElement?.(el);
-          if (!dataUrl) { if (!shotCache) shotCache = await MG.captureViewport?.(); if (shotCache) dataUrl = await MG.cropFromScreenshot?.(shotCache, el); }
-          const result = dataUrl ? await detectDataUrlSafe(dataUrl) : null;
+          if (!dataUrl) {
+            if (!shotCache) shotCache = await MG.captureViewport?.();
+            if (shotCache) dataUrl = await MG.cropFromScreenshot?.(shotCache, el);
+          }
+      
+          // --- Step 2: Decide service based on element type ---
+          let result = null;
+          try {
+            if (el instanceof HTMLImageElement) {
+              result = await MG.services.detectImageDataUrl(dataUrl);
+            } else if (el instanceof HTMLVideoElement) {
+              // For now: capture current frame only.
+              // (Optionally expand later to sample multiple frames.)
+              result = await MG.services.detectVideoDataUrl(dataUrl);
+            } else {
+              // fallback
+              result = await MG.services.detectImageDataUrl(dataUrl);
+            }
+          } catch (err) {
+            console.warn("Deepfake API error:", err);
+          }
+      
+          // --- Step 3: Normalize risk level ---
           const level = String(result?.risk?.level || "UNKNOWN").toUpperCase();
           counts[level] = (counts[level] || 0) + 1;
-          mediaItems.push({ dataUrl: dataUrl || null, level, score: result?.risk?.score || null, element: el });
+      
+          mediaItems.push({
+            dataUrl: dataUrl || null,
+            level,
+            score: result?.risk?.score || null,
+            element: el,
+            raw: result?.raw || result || {},
+          });
+      
           setProgress(i + 1, mediaEls.length);
         }
-
-        setSummary(counts); btnScan.textContent = "Scan Media"; btnScan.disabled = false;
-        tip.classList.remove("mg-scan-active"); progText.textContent = "Done";
-        if (btnOpen) { btnOpen.hidden = false; btnOpen.disabled = false; btnOpen.style.display = ""; btnOpen.removeAttribute("hidden"); }
+      
+        // --- Step 4: Update UI ---
+        setSummary(counts);
+        btnScan.textContent = "Scan Media";
+        btnScan.disabled = false;
+        tip.classList.remove("mg-scan-active");
+        progText.textContent = "Done";
+      
+        if (btnOpen) {
+          btnOpen.hidden = false;
+          btnOpen.disabled = false;
+          btnOpen.style.display = "";
+          btnOpen.removeAttribute("hidden");
+        }
       }
 
       btnScan?.addEventListener("click", () => { startScan(); });

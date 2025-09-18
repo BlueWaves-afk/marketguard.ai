@@ -13,7 +13,7 @@ import io
 import os
 import re
 import tempfile
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Literal
 
 import numpy as np
 import requests
@@ -93,6 +93,23 @@ class DataURLPayload(BaseModel):
   data_url: str = Field(..., description="data URL, e.g. data:image/png;base64,AAAA...")
   meta: Optional[Dict[str, Any]] = None
 
+class BatchMediaItem(BaseModel):
+  kind: Literal["image", "video"] = "image"
+  data_url: str
+  meta: Optional[Dict[str, Any]] = None
+
+class BatchMediaRequest(BaseModel):
+  media: List[BatchMediaItem]
+
+class BatchMediaItemResponse(BaseModel):
+  media_type: str
+  sha256: Optional[str] = None
+  width: Optional[int] = None
+  height: Optional[int] = None
+  risk: Risk
+  model: str = "stub"
+  version: str = "0.1"
+
 # -------------------------------------------------------------
 # Globals (lazy-initialized OCR reader)
 # -------------------------------------------------------------
@@ -101,7 +118,6 @@ _easy_reader: Optional[Any] = None  # initialized on first OCR call
 # -------------------------------------------------------------
 # Utils
 # -------------------------------------------------------------
-# Allow extra parameters before ';base64,' (e.g., data:image/png;name=foo;param=bar;base64,...)
 DATA_URL_RE = re.compile(
   r"^data:(?P<mime>[\w/+.\-]+)(?:;[\w.\-=+]+)*;base64,(?P<b64>.+)$",
   re.IGNORECASE
@@ -127,7 +143,7 @@ def sha256_bytes(b: bytes) -> str:
 def load_image_from_bytes(b: bytes) -> Image.Image:
   try:
     im = Image.open(io.BytesIO(b))
-    im = im.convert("RGB")  # force decode + normalize to RGB
+    im = im.convert("RGB")
     return im
   except Exception:
     raise HTTPException(status_code=400, detail="Unsupported image")
@@ -151,10 +167,9 @@ def guarded_download(url: str) -> bytes:
     raise HTTPException(status_code=502, detail=f"Download failed: {e}")
 
 def group_lines_into_paragraphs(lines, y_threshold=15) -> List[str]:
-  """Group OCR lines into paragraphs based on vertical spacing. Works with easyocr results."""
   if not lines:
     return []
-  lines_sorted = sorted(lines, key=lambda l: l[0][0][1])  # sort by y
+  lines_sorted = sorted(lines, key=lambda l: l[0][0][1])
   paragraphs: List[str] = []
   current_para: List[str] = []
   last_y: Optional[float] = None
@@ -174,15 +189,11 @@ def group_lines_into_paragraphs(lines, y_threshold=15) -> List[str]:
 # Detection stubs (replace with your real model calls)
 # -------------------------------------------------------------
 def detect_image_stub(img: Image.Image) -> Risk:
-  """
-  Replace this stub with your deepfake / spoof / faceforensics detector.
-  For demonstration, compute a trivial score from high-frequency energy.
-  """
   try:
     arr = np.asarray(img, dtype=np.float32) / 255.0
     gy, gx = np.gradient(arr.mean(axis=2))
     hf = float((np.abs(gx) + np.abs(gy)).mean())
-    score = max(0.0, min(1.0, hf * 2.0))  # squashed to [0..1]
+    score = max(0.0, min(1.0, hf * 2.0))
   except Exception:
     score = 0.0
 
@@ -203,7 +214,6 @@ def aggregate_video_results(frames: List[FrameResult]) -> Risk:
   scores = [f.risk.score for f in frames]
   max_score = float(np.max(scores))
   mean_score = float(np.mean(scores))
-  # Conservative: use max
   score = max_score
   if score >= 0.75:
     level = "HIGH"
@@ -265,7 +275,7 @@ async def detect_image_dataurl(payload: DataURLPayload = Body(...)):
   )
 
 @app.get("/api/detect/image-url", response_model=ImageDetectResponse)
-def detect_image_url(url: str = Query(..., description="Direct image URL")):
+def detect_image_url(url: str = Query(...)):
   raw = guarded_download(url)
   img = load_image_from_bytes(raw)
   risk = detect_image_stub(img)
@@ -313,8 +323,20 @@ def detect_video_url(
     tmp.flush()
     return _detect_video_path(tmp.name, max_frames=max_frames, sample_fps=sample_fps)
 
+@app.post("/api/detect/video-dataurl", response_model=ImageDetectResponse)
+async def detect_video_dataurl(payload: DataURLPayload = Body(...)):
+  raw, _mime = parse_data_url(payload.data_url)
+  img = load_image_from_bytes(raw)
+  risk = detect_image_stub(img)
+  return ImageDetectResponse(
+    media_type="video_frame",
+    width=img.width,
+    height=img.height,
+    sha256=sha256_bytes(raw),
+    risk=risk,
+  )
+
 def _detect_video_path(path: str, max_frames: int, sample_fps: float) -> VideoDetectResponse:
-  # HAS_CV2 checked by callers
   cap = cv2.VideoCapture(path)  # type: ignore[name-defined]
   if not cap.isOpened():
     raise HTTPException(status_code=400, detail="Could not open video")
@@ -332,7 +354,6 @@ def _detect_video_path(path: str, max_frames: int, sample_fps: float) -> VideoDe
     if not ok:
       break
 
-    # BGR -> RGB
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # type: ignore[name-defined]
     img = Image.fromarray(frame_rgb)
     risk = detect_image_stub(img)
@@ -358,13 +379,50 @@ def _detect_video_path(path: str, max_frames: int, sample_fps: float) -> VideoDe
   )
 
 # -------------------------------------------------------------
+# Routes: Batch Media
+# -------------------------------------------------------------
+@app.post("/api/detect/batch-media", response_model=List[BatchMediaItemResponse])
+async def detect_batch_media(req: BatchMediaRequest):
+  out: List[BatchMediaItemResponse] = []
+  if not req.media:
+    return out
+
+  for item in req.media:
+    try:
+      raw, _mime = parse_data_url(item.data_url)
+      img = load_image_from_bytes(raw)
+      risk = detect_image_stub(img)
+      media_type = "image" if item.kind == "image" else "video_frame"
+      out.append(BatchMediaItemResponse(
+        media_type=media_type,
+        sha256=sha256_bytes(raw),
+        width=img.width,
+        height=img.height,
+        risk=risk,
+      ))
+    except HTTPException as he:
+      out.append(BatchMediaItemResponse(
+        media_type=item.kind,
+        sha256=None,
+        width=None,
+        height=None,
+        risk=Risk(level="UNKNOWN", score=0.0, reasons=[f"error:{he.detail}"]),
+      ))
+    except Exception as e:
+      out.append(BatchMediaItemResponse(
+        media_type=item.kind,
+        sha256=None,
+        width=None,
+        height=None,
+        risk=Risk(level="UNKNOWN", score=0.0, reasons=[f"error:{e}"]),
+      ))
+  return out
+
+# -------------------------------------------------------------
 # Routes: OCR (optional)
 # -------------------------------------------------------------
 @app.post("/api/ocr", response_model=OCRResponse)
 async def ocr_endpoint(file: UploadFile = File(...)):
-  """
-  Upload an image and get OCR text grouped into paragraphs.
-  """
   if not HAS_EASYOCR:
     raise HTTPException(status_code=501, detail="easyocr not installed on server")
 
@@ -374,7 +432,6 @@ async def ocr_endpoint(file: UploadFile = File(...)):
 
   image = load_image_from_bytes(image_bytes)
 
-  # Lazy-init reader so container can start even without model files downloaded
   global _easy_reader
   if _easy_reader is None:
     _easy_reader = easyocr.Reader(["en"])  # type: ignore
