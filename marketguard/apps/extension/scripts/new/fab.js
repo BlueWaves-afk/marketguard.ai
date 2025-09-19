@@ -18,6 +18,111 @@
     return resolveAsset(isHigh ? "assets/logo-high-risk.png" : "assets/logo.png");
   }
 
+  // -------------------- tiny animation helpers --------------------
+  function prefersReducedMotion() {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  }
+
+  // Tween numbers smoothly in the mg-perc element
+  function animateNumber(el, from, to, duration = 450) {
+    if (!el) return;
+    if (prefersReducedMotion()) { el.textContent = isNaN(to) ? "--%" : `${Math.round(to)}%`; return; }
+    const start = performance.now();
+    const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+    function frame(now) {
+      const t = clamp((now - start) / duration, 0, 1);
+      const v = Math.round(from + (to - from) * (t < 0.5 ? 2*t*t : -1 + (4 - 2*t)*t)); // easeInOutQuad
+      el.textContent = isNaN(to) ? "--%" : `${v}%`;
+      if (t < 1) requestAnimationFrame(frame);
+      else el.textContent = isNaN(to) ? "--%" : `${Math.round(to)}%`;
+    }
+    requestAnimationFrame(frame);
+    // bump animation
+    el.classList.remove("mg-perc-bump");
+    // force reflow to restart animation
+    void el.offsetWidth;
+    el.classList.add("mg-perc-bump");
+  }
+
+  // Crossfade logo when the src changes
+
+  function swapLogo(imgEl, nextSrc) {
+    if (!imgEl || !nextSrc) return;
+    if (imgEl.getAttribute("src") === nextSrc) return;
+
+    const wrapper = imgEl.closest(".mg-logo");
+    if (!wrapper) { imgEl.src = nextSrc; imgEl.style.opacity = "1"; return; }
+
+    // Create the new image layer
+    const nextImg = imgEl.cloneNode(false);
+    nextImg.src = nextSrc;
+    nextImg.style.position = "absolute";
+    nextImg.style.inset = "0";
+    nextImg.style.opacity = "0";
+
+    // Ensure wrapper can stack children
+    wrapper.style.position = wrapper.style.position || "relative";
+    wrapper.appendChild(nextImg);
+
+    // Old image becomes absolutely positioned for the crossfade
+    imgEl.style.position = "absolute";
+    imgEl.style.inset = "0";
+    imgEl.style.opacity = "1";
+
+    // Reduced motion: instant swap
+    if (prefersReducedMotion()) {
+      imgEl.remove(); // remove old
+      nextImg.style.position = "";
+      nextImg.style.inset = "";
+      nextImg.style.opacity = "1";
+      return;
+    }
+
+    // Crossfade using CSS transitions (more widely reliable than WAAPI here)
+    // Use small timeouts to ensure styles apply in correct order
+    requestAnimationFrame(() => {
+      nextImg.style.transition = "opacity 200ms ease";
+      imgEl.style.transition = "opacity 180ms ease";
+
+      nextImg.style.opacity = "1";
+      imgEl.style.opacity = "0";
+
+      const finalize = () => {
+        // Clean up: keep only the new image as the single child
+        if (imgEl && imgEl.parentNode) imgEl.remove();
+        if (nextImg) {
+          nextImg.style.transition = "";
+          nextImg.style.position = "";
+          nextImg.style.inset = "";
+          nextImg.style.opacity = "1";
+        }
+      };
+
+      // Safety net in case 'transitionend' is skipped
+      const killTimer = setTimeout(finalize, 260);
+
+      nextImg.addEventListener("transitionend", () => {
+        clearTimeout(killTimer);
+        finalize();
+      }, { once: true });
+    });
+  }
+
+  // Pulse the whole FAB briefly when risk band increases
+  function pulseFab(fab, kind /* 'up' | 'down' | 'paused' | 'resume' */) {
+    if (!fab || prefersReducedMotion()) return;
+    const cls = {
+      up: "mg-band-up",
+      down: "mg-band-down",
+      paused: "mg-paused-pop",
+      resume: "mg-resume-pop",
+    }[kind] || "mg-band-up";
+
+    fab.classList.remove("mg-band-up", "mg-band-down", "mg-paused-pop", "mg-resume-pop");
+    void fab.offsetWidth; // restart
+    fab.classList.add(cls);
+  }
+
   // ---- Check backend health ----
   MG.checkBackendHealth = async function checkBackendHealth() {
     try {
@@ -89,6 +194,15 @@
     `;
     document.body.appendChild(fab);
 
+    // remember last visuals to detect transitions
+    const s = ensureState();
+    s._fabPrev = {
+      band: "low",
+      paused,
+      pct: NaN,
+      logo: initialLogoSrc,
+    };
+
     // Guard against drag triggering click-open
     let dragMoved = false; let pointerDownAt = null;
     fab.addEventListener('pointerdown', (e) => {
@@ -129,26 +243,58 @@
   MG.setFabScore = function setFabScore(score, riskText) {
     const fab = document.querySelector('.marketguard-fab');
     if (!fab) return;
-    const pct = MG.pct?.(score) ?? 0;
+
+    const s = ensureState();
+    const prev = s._fabPrev || { band: "low", paused: false, pct: NaN, logo: "" };
+    const pctNum = MG.pct?.(score);
+    const pct = isNaN(score) ? NaN : (typeof pctNum === "number" ? pctNum : 0);
     const per = fab.querySelector('.mg-perc');
+
+    // paused?
+    const paused = String(riskText || '').toUpperCase() === 'PAUSED' || !!(MG.state?.prefs?.pauseScanning);
+
+    // compute band
+    const v = Number(score) || 0;
+    const { LOW, HIGH } = MG.CUTS || { LOW: 0.34, HIGH: 0.6 };
+    const band = paused ? "paused" : (v >= HIGH ? "high" : (v >= LOW ? "med" : "low"));
+
+    // update percentage with tween + bump
     if (per) {
-      const txt = isNaN(score) ? '--%' : `${pct}%`;
-      per.textContent = txt;
+      const fromPct = isNaN(prev.pct) ? (isNaN(pct) ? NaN : pct) : prev.pct;
+      animateNumber(per, isNaN(fromPct) ? (isNaN(pct) ? 0 : pct) : fromPct, pct);
+      const txt = isNaN(score) ? '--%' : `${Math.round(pct)}%`;
       per.classList.toggle('long-text', txt.length > 4);
     }
-    const paused = String(riskText || '').toUpperCase() === 'PAUSED' || !!(MG.state?.prefs?.pauseScanning);
+
+    // band class swap with one-shot pulse
     fab.classList.remove('mg-fab-low', 'mg-fab-med', 'mg-fab-high', 'mg-fab-paused');
-    if (paused) fab.classList.add('mg-fab-paused');
-    else {
-      const v = Number(score) || 0;
-      const { LOW, HIGH } = MG.CUTS || { LOW: 0.34, HIGH: 0.6 };
-      fab.classList.add(v >= HIGH ? 'mg-fab-high' : v >= LOW ? 'mg-fab-med' : 'mg-fab-low');
+    if (band === "paused") {
+      fab.classList.add('mg-fab-paused');
+      if (!prev.paused) pulseFab(fab, "paused");
+    } else {
+      fab.classList.add(band === "high" ? 'mg-fab-high' : band === "med" ? 'mg-fab-med' : 'mg-fab-low');
+      if (prev.paused && band !== "paused") pulseFab(fab, "resume");
+      else if ((prev.band === "low" && (band === "med" || band === "high")) || (prev.band === "med" && band === "high")) {
+        pulseFab(fab, "up");
+      } else if ((prev.band === "high" && (band === "med" || band === "low")) || (prev.band === "med" && band === "low")) {
+        pulseFab(fab, "down");
+      }
     }
+
+    // paused badge toggle
+    const pausedBadge = fab.querySelector(".mg-badge--paused");
+    if (pausedBadge) pausedBadge.hidden = !paused;
+
+    // logo crossfade if needed
     const img = fab.querySelector('.mg-logo img');
-    if (img) img.src = computeLogoSrc({ score, riskText, pausedExplicit: paused });
+    const nextLogo = computeLogoSrc({ score, riskText, pausedExplicit: paused });
+    if (img) swapLogo(img, nextLogo);
+
+    // remember
+    s._fabPrev = { band, paused, pct, logo: nextLogo };
   };
 
-  // ---- inject CSS for missing badge + dark popup ----
+  // ---- inject CSS for visuals & animations ----
   const style = document.createElement("style");
   style.textContent = `
     .mg-badge--missing {
@@ -162,6 +308,63 @@
       display: inline-block;
     }
 
+    /* Percentage bump */
+    @keyframes mg-bump {
+      0% { transform: translateZ(0) scale(1); }
+      35% { transform: translateZ(0) scale(1.08); }
+      100% { transform: translateZ(0) scale(1); }
+    }
+    .mg-perc-bump { animation: mg-bump 220ms ease-out; will-change: transform; }
+
+    /* Band transition pulses */
+    @keyframes mg-band-up-kf {
+      0% { box-shadow: 0 0 0 0 rgba(0, 220, 130, 0.0); transform: translateZ(0) scale(1); }
+      50% { box-shadow: 0 0 0 14px rgba(0, 220, 130, 0.12); transform: translateZ(0) scale(1.02); }
+      100% { box-shadow: 0 0 0 0 rgba(0, 220, 130, 0.0); transform: translateZ(0) scale(1); }
+    }
+    @keyframes mg-band-down-kf {
+      0% { transform: translateZ(0) scale(1); filter: none; }
+      50% { transform: translateZ(0) scale(0.98); filter: saturate(0.9) brightness(0.98); }
+      100% { transform: translateZ(0) scale(1); filter: none; }
+    }
+    .marketguard-fab.mg-band-up { animation: mg-band-up-kf 380ms ease-out; }
+    .marketguard-fab.mg-band-down { animation: mg-band-down-kf 300ms ease-out; }
+
+    /* Paused/resume pops */
+    @keyframes mg-paused-pop-kf {
+      0% { transform: translateZ(0) scale(1); }
+      40% { transform: translateZ(0) scale(1.06); }
+      100% { transform: translateZ(0) scale(1); }
+    }
+    @keyframes mg-resume-pop-kf {
+      0% { transform: translateZ(0) scale(1); }
+      40% { transform: translateZ(0) scale(1.04); }
+      100% { transform: translateZ(0) scale(1); }
+    }
+    .marketguard-fab.mg-paused-pop { animation: mg-paused-pop-kf 260ms ease-out; }
+    .marketguard-fab.mg-resume-pop { animation: mg-resume-pop-kf 220ms ease-out; }
+
+    /* High risk subtle continuous pulse */
+    @keyframes mg-high-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.0); }
+      50% { box-shadow: 0 0 0 10px rgba(255, 68, 68, 0.12); }
+      100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.0); }
+    }
+    .marketguard-fab.mg-fab-high { animation: mg-high-pulse 2.2s ease-in-out infinite; }
+
+    /* Paused breathing glow */
+    @keyframes mg-paused-breathe {
+      0% { box-shadow: 0 0 0 0 rgba(140, 140, 160, 0.0); }
+      50% { box-shadow: 0 0 0 10px rgba(140, 140, 160, 0.16); }
+      100% { box-shadow: 0 0 0 0 rgba(140, 140, 160, 0.0); }
+    }
+    .marketguard-fab.mg-fab-paused { animation: mg-paused-breathe 3s ease-in-out infinite; }
+
+    /* Logo wrapper ensures crossfade absolute clone aligns */
+    .mg-logo { position: relative; width: 28px; height: 28px; }
+    .mg-logo img { width: 100%; height: 100%; display: block; }
+
+    /* Missing popup (unchanged) */
     .mg-missing-popup {
       position: fixed;
       bottom: 80px;
@@ -181,7 +384,6 @@
       transition: opacity 0.3s ease, transform 0.3s ease;
       z-index: 999999;
     }
-
     .mg-missing-popup .mg-popup-header {
       font-weight: 600;
       font-size: 15px;
@@ -191,29 +393,22 @@
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
-
     .mg-missing-popup .mg-popup-body {
       padding: 12px 16px;
       font-size: 14px;
       line-height: 1.4;
     }
-
     .mg-missing-popup .mg-popup-body a {
       color: #4da6ff;
       text-decoration: none;
       font-weight: 500;
     }
-
-    .mg-missing-popup .mg-popup-body a:hover {
-      text-decoration: underline;
-    }
-
+    .mg-missing-popup .mg-popup-body a:hover { text-decoration: underline; }
     .mg-missing-popup .mg-popup-actions {
       padding: 12px 16px;
       text-align: right;
       border-top: 1px solid rgba(255,255,255,0.1);
     }
-
     .mg-missing-popup .mg-close-btn {
       background: #333;
       color: #fff;
@@ -225,9 +420,17 @@
       cursor: pointer;
       transition: background 0.2s ease;
     }
+    .mg-missing-popup .mg-close-btn:hover { background: #555; }
 
-    .mg-missing-popup .mg-close-btn:hover {
-      background: #555;
+    /* Respect reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      .marketguard-fab,
+      .mg-logo img,
+      .mg-perc-bump,
+      .mg-badge--missing {
+        animation: none !important;
+        transition: none !important;
+      }
     }
   `;
   document.head.appendChild(style);

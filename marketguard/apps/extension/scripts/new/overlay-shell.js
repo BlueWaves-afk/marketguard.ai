@@ -6,7 +6,7 @@
   // macOS-style "Genie" animation (open/close) + minimal CSS injector
   // ---------------------------------------------------------------------------
 
-  // one-time CSS injection for animation+glass polish
+  // one-time CSS injection for animation+glass polish + theme transition
   function injectGenieCSS() {
     if (document.getElementById("mg-genie-style")) return;
     const css = `
@@ -21,6 +21,66 @@
       /* small helper styles for sparkline meta */
       .mg-spark-meta { display:flex; gap:10px; font-size:12px; opacity:.85; margin-top:6px; }
       .mg-spark-meta b { font-weight:600; }
+
+      /* ---------------- Theme transition system ---------------- */
+      /* We don't enforce your actual theme colors here; we only animate whatever styles you already apply. */
+      .marketguard-tooltip {
+        /* Animate common visual properties when theme flips */
+        transition:
+          background-color 260ms ease,
+          color 260ms ease,
+          border-color 260ms ease,
+          box-shadow 260ms ease,
+          filter 260ms ease;
+      }
+      /* If you apply theme on a wrapper inside the overlay, they get animated too */
+      .marketguard-tooltip .ss-header,
+      .marketguard-tooltip .ss-body,
+      .marketguard-tooltip .mg-card,
+      .marketguard-tooltip .ss-chip,
+      .marketguard-tooltip .ss-btn,
+      .marketguard-tooltip [class*="ss-"],
+      .marketguard-tooltip [class*="mg-"] {
+        transition:
+          background-color 260ms ease,
+          color 260ms ease,
+          border-color 260ms ease,
+          box-shadow 260ms ease,
+          filter 260ms ease;
+      }
+
+      /* A quick wash/fade layer so the theme switch reads as a deliberate motion */
+      .mg-theme-swap-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        border-radius: inherit;
+        opacity: 0;
+        mix-blend-mode: normal; /* safe default; change to 'luminosity'/'difference' for bolder look */
+      }
+      @keyframes mg-theme-wash-in {
+        0%   { opacity: 0; }
+        35%  { opacity: 0.32; }
+        100% { opacity: 0; }
+      }
+      .mg-theme-wash-in { animation: mg-theme-wash-in 340ms ease forwards; }
+
+      /* A subtle ring to make the change feel tactile */
+      @keyframes mg-theme-ring {
+        0%   { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+        30%  { box-shadow: 0 0 0 10px rgba(127,127,127,0.12); }
+        100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+      }
+      .mg-theme-ring { animation: mg-theme-ring 360ms ease-out; }
+
+      /* Respect reduced motion */
+      @media (prefers-reduced-motion: reduce) {
+        .marketguard-tooltip,
+        .marketguard-tooltip * {
+          transition: none !important;
+          animation: none !important;
+        }
+      }
     `;
     const s = document.createElement("style");
     s.id = "mg-genie-style";
@@ -211,6 +271,105 @@
     }
   };
 
+  // ----------------------- Theme transition logic ----------------------------
+  function getThemeTokenFrom(el) {
+    if (!el) return null;
+    // Read from common places: class tokens, or data-theme attr
+    const cls = (el.className || "").toString().toLowerCase();
+    const dt  = (el.getAttribute?.("data-theme") || "").toString().toLowerCase();
+    // Known tokens you might be using:
+    if (cls.includes("mg-theme-dark") || dt === "dark" || cls.includes("theme-dark") || cls.includes("dark")) return "dark";
+    if (cls.includes("mg-theme-light") || dt === "light" || cls.includes("theme-light") || cls.includes("light")) return "light";
+    return null;
+  }
+
+  function findCurrentTheme(tip) {
+    // Prefer explicit theme on overlay; else inherit from <body> or <html>
+    return (
+      getThemeTokenFrom(tip) ||
+      getThemeTokenFrom(document.body) ||
+      getThemeTokenFrom(document.documentElement) ||
+      null
+    );
+  }
+
+  function createWashLayer(tip, themeAfter) {
+    // A subtle overlay that flashes briefly while theme transitions
+    const wash = document.createElement("div");
+    wash.className = "mg-theme-swap-layer mg-theme-wash-in";
+    // Set a neutral wash that works for both directions; tune if you want
+    // For example, darker wash when going to dark, lighter for light:
+    const goingDark = themeAfter === "dark";
+    wash.style.background = goingDark
+      ? "linear-gradient(180deg, rgba(0,0,0,0.22), rgba(0,0,0,0.06))"
+      : "linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0.08))";
+    return wash;
+  }
+
+  function animateThemeSwap(tip, fromTheme, toTheme) {
+    if (!tip || fromTheme === toTheme) return;
+    if (MG?.state?.prefs?.animation === "none") return;
+    if (prefersReduced()) return;
+
+    // add ring feedback
+    tip.classList.remove("mg-theme-ring");
+    void tip.offsetWidth;
+    tip.classList.add("mg-theme-ring");
+
+    // add a wash overlay that auto-animates and removes itself
+    const already = tip.querySelector(".mg-theme-swap-layer");
+    if (already) { try { already.remove(); } catch {} }
+    const wash = createWashLayer(tip, toTheme);
+    wash.style.borderRadius = getComputedStyle(tip).borderRadius || "14px";
+    // Ensure positioning context
+    const prevPos = getComputedStyle(tip).position;
+    if (prevPos === "static" || !prevPos) tip.style.position = "relative";
+    tip.appendChild(wash);
+
+    // Cleanup after animation
+    const done = () => { try { wash.remove(); } catch {}; };
+    const kill = setTimeout(done, 420);
+    wash.addEventListener("animationend", () => { clearTimeout(kill); done(); }, { once: true });
+  }
+
+  function attachThemeObserver(tip) {
+    if (!tip) return;
+    // Remember current theme
+    tip.__mgTheme = findCurrentTheme(tip);
+
+    // Observe the overlay element for class/attr flips (most common)
+    try {
+      const mo = new MutationObserver(() => {
+        const next = findCurrentTheme(tip);
+        if (next && tip.__mgTheme && next !== tip.__mgTheme) {
+          animateThemeSwap(tip, tip.__mgTheme, next);
+        }
+        if (next) tip.__mgTheme = next;
+      });
+      mo.observe(tip, { attributes: true, attributeFilter: ["class", "data-theme"] });
+      // Also watch <body> and <html> in case theme is applied globally
+      const moBody = new MutationObserver(() => {
+        const next = findCurrentTheme(tip);
+        if (next && tip.__mgTheme && next !== tip.__mgTheme) {
+          animateThemeSwap(tip, tip.__mgTheme, next);
+          tip.__mgTheme = next;
+        }
+      });
+      moBody.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme"] });
+      moBody.observe(document.body, { attributes: true, attributeFilter: ["class", "data-theme"] });
+
+      // Keep a cleanup handle
+      tip.__mgThemeCleanup = () => { try { mo.disconnect(); moBody.disconnect(); } catch {} };
+    } catch {}
+  }
+
+  // Optional public helper if you want to trigger the animation manually:
+  MG.animateThemeChange = (tip, toTheme) => {
+    const cur = tip ? (tip.__mgTheme || findCurrentTheme(tip)) : null;
+    animateThemeSwap(tip, cur, toTheme);
+    if (tip) tip.__mgTheme = toTheme || cur;
+  };
+
   // ---------------------------------------------------------------------------
   // Risk Trend storage + sparkline drawing
   // ---------------------------------------------------------------------------
@@ -304,9 +463,11 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Overlay shell (unchanged API, upgraded to use the genie animation)
+  // Overlay shell (unchanged API, upgraded to use the genie animation + theme FX)
   // ---------------------------------------------------------------------------
   MG.mountOverlayShell = (options = {}) => {
+    injectGenieCSS();
+
     let tip = MG.qs?.(".marketguard-tooltip");
     if (tip) return tip;
 
@@ -420,7 +581,6 @@
       </div>`;
     body.appendChild(actions);
 
-    // NOTE: Prev/Next buttons removed by design
     const btnExplain = actions.querySelector("[data-mg-explain]");
     const btnReport = actions.querySelector("[data-mg-report]");
     const btnVerify = actions.querySelector("[data-mg-verify]");
@@ -488,9 +648,6 @@
         const s = ` ${counts.HIGH || 0} High • ${counts.MEDIUM || 0} Medium • ${counts.SAFE || 0} Safe`;
         summaryEl.textContent = s;
       };
-      const detectDataUrlSafe = async (dataUrl) => {
-        try { return await MG.detectDataUrl?.(dataUrl); } catch { return null; }
-      };
 
       async function startScan() {
         const mediaEls = MG.enumerateMedia?.() || [];
@@ -499,35 +656,32 @@
           alert("No media found in view.");
           return;
         }
-      
+
         mediaItems = [];
         btnScan.disabled = true;
         btnScan.textContent = "Scanning…";
         tip.classList.add("mg-scan-active");
         progWrap.hidden = false;
         setProgress(0, mediaEls.length);
-      
+
         const counts = { HIGH: 0, MEDIUM: 0, LOW: 0, SAFE: 0, UNKNOWN: 0 };
-        let shotCache = null;
-      
+
         for (let i = 0; i < mediaEls.length; i++) {
           const el = mediaEls[i];
-      
+
           // --- Step 1: Capture pixels ---
           let dataUrl = await MG.captureElement?.(el);
           if (!dataUrl) {
-            if (!shotCache) shotCache = await MG.captureViewport?.();
+            let shotCache = await MG.captureViewport?.();
             if (shotCache) dataUrl = await MG.cropFromScreenshot?.(shotCache, el);
           }
-      
+
           // --- Step 2: Decide service based on element type ---
           let result = null;
           try {
             if (el instanceof HTMLImageElement) {
               result = await MG.services.detectImageDataUrl(dataUrl);
             } else if (el instanceof HTMLVideoElement) {
-              // For now: capture current frame only.
-              // (Optionally expand later to sample multiple frames.)
               result = await MG.services.detectVideoDataUrl(dataUrl);
             } else {
               // fallback
@@ -536,11 +690,11 @@
           } catch (err) {
             console.warn("Deepfake API error:", err);
           }
-      
+
           // --- Step 3: Normalize risk level ---
           const level = String(result?.risk?.level || "UNKNOWN").toUpperCase();
           counts[level] = (counts[level] || 0) + 1;
-      
+
           mediaItems.push({
             dataUrl: dataUrl || null,
             level,
@@ -548,17 +702,17 @@
             element: el,
             raw: result?.raw || result || {},
           });
-      
+
           setProgress(i + 1, mediaEls.length);
         }
-      
+
         // --- Step 4: Update UI ---
         setSummary(counts);
         btnScan.textContent = "Scan Media";
         btnScan.disabled = false;
         tip.classList.remove("mg-scan-active");
         progText.textContent = "Done";
-      
+
         if (btnOpen) {
           btnOpen.hidden = false;
           btnOpen.disabled = false;
@@ -567,10 +721,11 @@
         }
       }
 
-      btnScan?.addEventListener("click", () => { startScan(); });
-      btnOpen?.addEventListener("click", (e) => {
-        e.preventDefault(); if (btnOpen?.disabled) return;
-        try { const validMediaItems = Array.isArray(mediaItems) ? mediaItems : []; MG.openMediaPopup?.({ mediaItems: validMediaItems, summary: {} }); }
+      mediaCard.querySelector("[data-media-scan]")?.addEventListener("click", () => { startScan(); });
+      mediaCard.querySelector("[data-media-open]")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        const validMediaItems = Array.isArray(mediaItems) ? mediaItems : [];
+        try { MG.openMediaPopup?.({ mediaItems: validMediaItems, summary: {} }); }
         catch { alert("Unable to open media results. Please try scanning again."); }
       });
 
@@ -597,6 +752,9 @@
     gear.onclick = toggleSettings;
     MG.buildSettingsPanel?.(settingsInner);
 
+    // Attach theme observer *before* first paint so we catch immediate flips
+    attachThemeObserver(tip);
+
     requestAnimationFrame(async () => {
       if (isFromFabClick) {
         if (typeof MG.applyGenieAnimation === "function") MG.applyGenieAnimation(tip, false);
@@ -604,7 +762,10 @@
       } else {
         tip.classList.add("marketguard-in");
       }
+
+      // Apply preferences (theme etc.) — our observer will animate any theme change
       MG.applyPrefsToOverlay?.(tip);
+
       MG.updateHlSummary?.();
 
       // Render existing trend, then append latest score (if available)
@@ -617,7 +778,6 @@
     if (hasRisky) {
       if (!MG.state) MG.state = {};
       MG.state.hlIndex = -1;
-      // Keep this behavior if you still want to jump to first highlight automatically
       setTimeout(() => MG.goToHighlight?.(+1), 300);
     }
 
@@ -632,6 +792,9 @@
       mo.observe(document.body, { childList: true, subtree: true });
       cleanupFns.push(() => mo.disconnect());
     } catch {}
+
+    // Clean up observers when overlay is closed externally
+    cleanupFns.push(() => { try { tip.__mgThemeCleanup?.(); } catch {} });
 
     return tip;
   };

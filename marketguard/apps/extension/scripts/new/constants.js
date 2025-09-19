@@ -34,7 +34,7 @@
     theme: "dark",
     defaultMode: "compact",
     pauseScanning: false,
-    animation: "genie",
+    animation: "no-animation", //genie
   };
 
   MG.CUTS = { LOW: 0.34, HIGH: 0.6 };
