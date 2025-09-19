@@ -3,10 +3,10 @@
   const MG = (window.MG = window.MG || {});
 
   // ---------------------------------------------------------------------------
-  // macOS-style "Genie" animation (open/close) + minimal CSS injector
+  // Enhanced macOS-style "Genie" animation (open/close) + improved CSS
   // ---------------------------------------------------------------------------
 
-  // one-time CSS injection for animation+glass polish + theme transition
+  // Enhanced CSS injection for better animations and visual polish
   function injectGenieCSS() {
     if (document.getElementById("mg-genie-style")) return;
     const css = `
@@ -14,24 +14,31 @@
         will-change: transform, opacity, filter, clip-path;
         backface-visibility: hidden;
         contain: layout style paint;
+        transform-style: preserve-3d;
       }
       .mg-glassy {
-        backdrop-filter: saturate(1.2) blur(10px);
+        backdrop-filter: saturate(1.2) blur(12px);
+        -webkit-backdrop-filter: saturate(1.2) blur(12px);
+        background: rgba(255, 255, 255, 0.75);
+      }
+      .mg-theme-dark .mg-glassy {
+        background: rgba(0, 0, 0, 0.65);
       }
       /* small helper styles for sparkline meta */
       .mg-spark-meta { display:flex; gap:10px; font-size:12px; opacity:.85; margin-top:6px; }
       .mg-spark-meta b { font-weight:600; }
 
-      /* ---------------- Theme transition system ---------------- */
-      /* We don't enforce your actual theme colors here; we only animate whatever styles you already apply. */
+      /* ---------------- Enhanced Theme transition system ---------------- */
       .marketguard-tooltip {
-        /* Animate common visual properties when theme flips */
+        /* Smoother transitions for theme changes */
         transition:
-          background-color 260ms ease,
-          color 260ms ease,
-          border-color 260ms ease,
-          box-shadow 260ms ease,
-          filter 260ms ease;
+          background-color 320ms ease,
+          color 320ms ease,
+          border-color 320ms ease,
+          box-shadow 320ms ease,
+          filter 320ms ease,
+          backdrop-filter 320ms ease,
+          transform 320ms ease;
       }
       /* If you apply theme on a wrapper inside the overlay, they get animated too */
       .marketguard-tooltip .ss-header,
@@ -42,36 +49,57 @@
       .marketguard-tooltip [class*="ss-"],
       .marketguard-tooltip [class*="mg-"] {
         transition:
-          background-color 260ms ease,
-          color 260ms ease,
-          border-color 260ms ease,
-          box-shadow 260ms ease,
-          filter 260ms ease;
+          background-color 320ms ease,
+          color 320ms ease,
+          border-color 320ms ease,
+          box-shadow 320ms ease,
+          filter 320ms ease;
       }
 
-      /* A quick wash/fade layer so the theme switch reads as a deliberate motion */
+      /* Enhanced wash/fade layer for theme transitions */
       .mg-theme-swap-layer {
         position: absolute;
         inset: 0;
         pointer-events: none;
         border-radius: inherit;
         opacity: 0;
-        mix-blend-mode: normal; /* safe default; change to 'luminosity'/'difference' for bolder look */
+        mix-blend-mode: overlay;
+        z-index: 10;
       }
       @keyframes mg-theme-wash-in {
-        0%   { opacity: 0; }
-        35%  { opacity: 0.32; }
-        100% { opacity: 0; }
+        0%   { opacity: 0; transform: scale(0.95); }
+        35%  { opacity: 0.4; transform: scale(1); }
+        100% { opacity: 0; transform: scale(1.02); }
       }
-      .mg-theme-wash-in { animation: mg-theme-wash-in 340ms ease forwards; }
+      .mg-theme-wash-in { 
+        animation: mg-theme-wash-in 480ms cubic-bezier(0.16, 1, 0.3, 1) forwards; 
+      }
 
-      /* A subtle ring to make the change feel tactile */
+      /* Enhanced ring effect for theme changes */
       @keyframes mg-theme-ring {
-        0%   { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
-        30%  { box-shadow: 0 0 0 10px rgba(127,127,127,0.12); }
-        100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+        0%   { box-shadow: 0 0 0 0 rgba(128,128,128,0); }
+        40%  { box-shadow: 0 0 0 12px rgba(127,127,127,0.15); }
+        100% { box-shadow: 0 0 0 24px rgba(0,0,0,0); }
       }
-      .mg-theme-ring { animation: mg-theme-ring 360ms ease-out; }
+      .mg-theme-ring { 
+        animation: mg-theme-ring 500ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards; 
+      }
+
+      /* Subtle pulse animation for interactive elements */
+      @keyframes mg-pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+      }
+      .mg-pulse {
+        animation: mg-pulse 300ms ease;
+      }
+
+      /* Micro-interaction for buttons */
+      .ss-btn:active {
+        transform: scale(0.97);
+        transition: transform 100ms ease;
+      }
 
       /* Respect reduced motion */
       @media (prefers-reduced-motion: reduce) {
@@ -79,6 +107,9 @@
         .marketguard-tooltip * {
           transition: none !important;
           animation: none !important;
+        }
+        .ss-btn:active {
+          transform: none;
         }
       }
     `;
@@ -101,9 +132,9 @@
     return { x: br.right - margin, y: br.bottom - margin };
   }
 
-  // feature checks + helpers
+  // Enhanced feature checks + helpers
   const EASE_OPEN = "cubic-bezier(0.16, 1, 0.3, 1)";
-  const EASE_CLOSE = "cubic-bezier(0.4, 0, 1, 1)";
+  const EASE_CLOSE = "cubic-bezier(0.4, 0, 0.8, 0.4)"; // Smoother close
 
   function supportsClipPathAnim() {
     const el = document.createElement("div");
@@ -114,9 +145,11 @@
       return false;
     }
   }
+  
   function pinchPolygon(t) {
-    const pinch = Math.min(42, 8 + t * 42); // %
-    const inset = Math.min(6 + t * 8, 14); // %
+    // More pronounced genie effect with better curve control
+    const pinch = Math.min(48, 10 + t * 48); // %
+    const inset = Math.min(8 + t * 10, 18); // %
     return `polygon(
       ${inset}% 0%,
       ${100 - inset}% 0%,
@@ -130,6 +163,7 @@
       ${inset}% ${inset}%
     )`;
   }
+  
   function prefersReduced() {
     try {
       return !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
@@ -138,7 +172,7 @@
     }
   }
 
-  // Public: MG.applyGenieAnimation(el, isClosing)
+  // Enhanced: MG.applyGenieAnimation(el, isClosing)
   MG.applyGenieAnimation = function applyGenieAnimation(el, isClosing = false) {
     if (!el || !(el instanceof Element)) return;
 
@@ -167,13 +201,13 @@
     el.classList.add("mg-genie-animating");
 
     const reduce = prefersReduced();
-    const DUR_OPEN = 420;
-    const DUR_CLOSE = 380;
+    const DUR_OPEN = 480; // Slightly longer for smoother animation
+    const DUR_CLOSE = 420;
     const useClip = supportsClipPathAnim();
 
-    const startScale = "scale(0.06, 0.18)";
+    const startScale = "scale(0.04, 0.16)"; // More pronounced scaling
     const endScale = "scale(1, 1)";
-    const startFilter = "blur(2px) saturate(0.92)";
+    const startFilter = "blur(4px) saturate(0.85) brightness(0.95)";
     const endFilter = "none";
 
     const finalize = (wasClosing) => {
@@ -206,14 +240,15 @@
 
     if (useClip) {
       const frames = [];
-      const steps = 24;
+      const steps = 28; // More steps for smoother animation
       const lerp = (a, b, u) => a + (b - a) * u;
 
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
-        const scaleX = isClosing ? lerp(1, 0.06, t) : lerp(0.06, 1, t);
-        const scaleY = isClosing ? lerp(1, 0.18, t) : lerp(0.18, 1, t);
-        const blurAmt = isClosing ? lerp(0, 2, t) : lerp(2, 0, t);
+        const scaleX = isClosing ? lerp(1, 0.04, t) : lerp(0.04, 1, t);
+        const scaleY = isClosing ? lerp(1, 0.16, t) : lerp(0.16, 1, t);
+        const blurAmt = isClosing ? lerp(0, 4, t) : lerp(4, 0, t);
+        const brightnessAmt = isClosing ? lerp(1, 0.95, t) : lerp(0.95, 1, t);
         const pinchT = isClosing ? t : 1 - t;
 
         // For the final frame on open, ensure we fully resolve to unclipped, untransformed state
@@ -226,17 +261,20 @@
           });
         } else if (isClosing && i === steps) {
           frames.push({
-            opacity: 0.88, // near the last value
-            filter: `blur(${blurAmt}px)`,
+            opacity: 0.88,
+            filter: `blur(${blurAmt}px) saturate(0.85) brightness(${brightnessAmt})`,
             clipPath: pinchPolygon(pinchT),
             transform: `perspective(900px) translateZ(0px) scale(${scaleX}, ${scaleY})`,
           });
         } else {
+          // Add subtle rotation for more dynamic effect
+          const rotateAmt = isClosing ? lerp(0, -0.5, t) : lerp(-0.5, 0, t);
+          
           frames.push({
-            opacity: isClosing ? 1 - t * 0.08 : 0.92 + t * 0.08,
-            filter: `blur(${blurAmt}px)`,
+            opacity: isClosing ? 1 - t * 0.08 : 0.88 + t * 0.12,
+            filter: `blur(${blurAmt}px) saturate(0.85) brightness(${brightnessAmt})`,
             clipPath: pinchPolygon(pinchT),
-            transform: `perspective(900px) translateZ(0px) scale(${scaleX}, ${scaleY})`,
+            transform: `perspective(900px) translateZ(0px) rotate(${rotateAmt}deg) scale(${scaleX}, ${scaleY})`,
           });
         }
       }
@@ -249,16 +287,47 @@
       anim.onfinish = () => finalize(isClosing);
       anim.oncancel = () => finalize(isClosing);
     } else {
+      // Fallback animation with more personality
       const keyframes = isClosing
         ? [
-            { opacity: 1, filter: endFilter, transform: 'none' },
-            { opacity: 0.94, filter: 'blur(0.6px)', transform: 'perspective(900px) scale(0.82, 0.86) skewY(-1deg)' },
-            { opacity: 0.88, filter: startFilter, transform: `perspective(900px) ${startScale}` },
+            { 
+              opacity: 1, 
+              filter: endFilter, 
+              transform: 'none',
+              borderRadius: '12px'
+            },
+            { 
+              opacity: 0.94, 
+              filter: 'blur(2px) saturate(0.9)', 
+              transform: 'perspective(900px) scale(0.82, 0.86) rotate(-1deg)',
+              borderRadius: '16px'
+            },
+            { 
+              opacity: 0.88, 
+              filter: startFilter, 
+              transform: `perspective(900px) ${startScale} rotate(-2deg)`,
+              borderRadius: '20px'
+            },
           ]
         : [
-            { opacity: 0.88, filter: startFilter, transform: `perspective(900px) ${startScale}` },
-            { opacity: 0.94, filter: 'blur(0.6px)', transform: 'perspective(900px) scale(0.82, 0.86) skewY(-1deg)' },
-            { opacity: 1, filter: endFilter, transform: 'none' },
+            { 
+              opacity: 0.88, 
+              filter: startFilter, 
+              transform: `perspective(900px) ${startScale} rotate(-2deg)`,
+              borderRadius: '20px'
+            },
+            { 
+              opacity: 0.94, 
+              filter: 'blur(2px) saturate(0.9)', 
+              transform: 'perspective(900px) scale(0.82, 0.86) rotate(-1deg)',
+              borderRadius: '16px'
+            },
+            { 
+              opacity: 1, 
+              filter: endFilter, 
+              transform: 'none',
+              borderRadius: '12px'
+            },
           ];
 
       const anim = el.animate(keyframes, {
@@ -271,7 +340,7 @@
     }
   };
 
-  // ----------------------- Theme transition logic ----------------------------
+  // ----------------------- Enhanced Theme transition logic ----------------------------
   function getThemeTokenFrom(el) {
     if (!el) return null;
     // Read from common places: class tokens, or data-theme attr
@@ -294,15 +363,16 @@
   }
 
   function createWashLayer(tip, themeAfter) {
-    // A subtle overlay that flashes briefly while theme transitions
+    // Enhanced wash layer with more visual impact
     const wash = document.createElement("div");
     wash.className = "mg-theme-swap-layer mg-theme-wash-in";
-    // Set a neutral wash that works for both directions; tune if you want
-    // For example, darker wash when going to dark, lighter for light:
+    
+    // More distinct wash effects based on theme direction
     const goingDark = themeAfter === "dark";
     wash.style.background = goingDark
-      ? "linear-gradient(180deg, rgba(0,0,0,0.22), rgba(0,0,0,0.06))"
-      : "linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0.08))";
+      ? "radial-gradient(circle at 30% 30%, rgba(0,0,0,0.32) 0%, rgba(0,0,0,0.12) 60%, transparent 100%)"
+      : "radial-gradient(circle at 70% 30%, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.15) 60%, transparent 100%)";
+    
     return wash;
   }
 
@@ -311,25 +381,38 @@
     if (MG?.state?.prefs?.animation === "none") return;
     if (prefersReduced()) return;
 
-    // add ring feedback
+    // Enhanced ring feedback with color based on theme direction
     tip.classList.remove("mg-theme-ring");
-    void tip.offsetWidth;
+    void tip.offsetWidth; // Trigger reflow
+    
+    // Add color to ring based on theme direction
+    const ringColor = toTheme === "dark" ? "rgba(0,0,0,0.18)" : "rgba(255,255,255,0.18)";
+    tip.style.setProperty('--mg-ring-color', ringColor);
+    
     tip.classList.add("mg-theme-ring");
 
-    // add a wash overlay that auto-animates and removes itself
+    // Enhanced wash overlay
     const already = tip.querySelector(".mg-theme-swap-layer");
     if (already) { try { already.remove(); } catch {} }
     const wash = createWashLayer(tip, toTheme);
     wash.style.borderRadius = getComputedStyle(tip).borderRadius || "14px";
+    
     // Ensure positioning context
     const prevPos = getComputedStyle(tip).position;
     if (prevPos === "static" || !prevPos) tip.style.position = "relative";
     tip.appendChild(wash);
 
     // Cleanup after animation
-    const done = () => { try { wash.remove(); } catch {}; };
-    const kill = setTimeout(done, 420);
-    wash.addEventListener("animationend", () => { clearTimeout(kill); done(); }, { once: true });
+    const done = () => { 
+      try { wash.remove(); } 
+      catch {};
+      tip.style.removeProperty('--mg-ring-color');
+    };
+    const kill = setTimeout(done, 520);
+    wash.addEventListener("animationend", () => { 
+      clearTimeout(kill); 
+      done(); 
+    }, { once: true });
   }
 
   function attachThemeObserver(tip) {
@@ -371,7 +454,7 @@
   };
 
   // ---------------------------------------------------------------------------
-  // Risk Trend storage + sparkline drawing
+  // Risk Trend storage + sparkline drawing (unchanged)
   // ---------------------------------------------------------------------------
   const RISK_KEY = "siteRiskHistory";           // chrome.storage.local key
   const RISK_WINDOW = 20;                       // keep last 20 entries
